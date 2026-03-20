@@ -1,0 +1,561 @@
+openapi: 3.0.3
+info:
+  title: Sefirot Backend API
+  version: 0.1.0
+  description: 課題進捗共有サービス「Sefirot」のAPI仕様書
+servers:
+  - url: http://localhost:8000/api/v1
+tags:
+  - name: Auth
+    description: 認証関係（登録・ログイン・トークン更新）
+  - name: Community
+    description: コミュニティ（プロジェクト）の作成・参加
+  - name: Task
+    description: タスクの追加・進捗更新・アサイン
+  - name: Checklist
+    description: タスク内チェックリストの管理
+security:
+  - bearerAuth: []
+paths:
+  /auth/signup:
+    post:
+      summary: Sign up
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupRequest"
+      responses:
+        "200":
+          description: Signup success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /auth/signin:
+    post:
+      summary: Sign in
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SigninRequest"
+      responses:
+        "200":
+          description: Signin success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+  /auth/logout:
+    post:
+      summary: Logout (revoke refresh token)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+      responses:
+        "204":
+          description: Logged out
+  /me:
+    get:
+      summary: Get my user data and communities
+      tags:
+        - Auth
+      responses:
+        "200":
+          description: User data and communities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+  /community/create:
+    post:
+      summary: Create community
+      tags:
+        - Community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityCreateRequest"
+      responses:
+        "200":
+          description: Created community
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommunityResponse"
+  /community/join:
+    post:
+      summary: Join community
+      tags:
+        - Community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityJoinRequest"
+      responses:
+        "200":
+          description: Joined community
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommunityResponse"
+  /community/invite:
+    post:
+      summary: 招待コードの発行
+      tags:
+        - Community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityInviteRequest"
+      responses:
+        "200":
+          description: 招待コード発行成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommunityInviteResponse"
+  /tasks:
+    get:
+      summary: Get tasks in a community
+      tags:
+        - Task
+      parameters:
+        - $ref: "#/components/parameters/CommunityIdQuery"
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+  /tasks/create:
+    post:
+      summary: Create a new task
+      tags:
+        - Task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreateRequest"
+      responses:
+        "200":
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskData"
+  /tasks/progress:
+    patch:
+      summary: Update task progress
+      tags:
+        - Task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskProgressRequest"
+      responses:
+        "200":
+          description: Progress updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskData"
+  /tasks/assign:
+    post:
+      summary: Assign user to a task
+      tags:
+        - Task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskAssignRequest"
+      responses:
+        "200":
+          description: Assigned successfully
+  /checklists/create:
+    post:
+      summary: Add a checklist item to a task
+      tags:
+        - Checklist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChecklistCreateRequest"
+      responses:
+        "200":
+          description: Checklist item created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChecklistData"
+  /checklists/update:
+    patch:
+      summary: Toggle checklist completion status
+      tags:
+        - Checklist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChecklistUpdateRequest"
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChecklistData"
+
+components:
+  schemas:
+    SignupRequest:
+      type: object
+      required:
+        - email
+        - password
+        - display_name
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        display_name:
+          type: string
+    SigninRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    AuthResponse:
+      type: object
+      required:
+        - user
+        - access_token
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - display_name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+    RefreshResponse:
+      type: object
+      required:
+        - access_token
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+    LogoutRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+    CommunityData:
+      type: object
+      required:
+        - id
+        - name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: コミュニティ名
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+    CommunityCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+    CommunityResponse:
+      $ref: "#/components/schemas/CommunityData"
+    CommunityJoinRequest:
+      type: object
+      required:
+        - invite_code
+      properties:
+        invite_code:
+          type: string
+    CommunityInviteRequest:
+      type: object
+      required:
+        - community_id
+      properties:
+        community_id:
+          type: string
+          format: uuid
+        limit:
+          type: string
+          format: date-time
+    CommunityInviteResponse:
+      type: object
+      required:
+        - invite_code
+      properties:
+        invite_code:
+          type: string
+        limit:
+          type: string
+          format: date-time
+    MeResponse:
+      type: object
+      required:
+        - user_data
+        - user_communities
+      properties:
+        user_data:
+          $ref: "#/components/schemas/User"
+        user_communities:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommunityData"
+    TaskData:
+      type: object
+      required:
+        - id
+        - community_id
+        - name
+        - progress
+        - priority
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        community_id:
+          type: string
+          format: uuid
+        parent_task_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 子タスクの場合、親タスクのID
+        name:
+          type: string
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        priority:
+          type: string
+          enum: [大, 中, 小]
+        deadline:
+          type: string
+          format: date-time
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        assignees:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        checklists:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChecklistData"
+    TaskListResponse:
+      type: array
+      items:
+        $ref: "#/components/schemas/TaskData"
+    TaskCreateRequest:
+      type: object
+      required:
+        - community_id
+        - name
+        - priority
+      properties:
+        community_id:
+          type: string
+          format: uuid
+        parent_task_id:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        priority:
+          type: string
+          enum: [大, 中, 小]
+        deadline:
+          type: string
+          format: date-time
+    TaskProgressRequest:
+      type: object
+      required:
+        - task_id
+        - progress
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+    TaskAssignRequest:
+      type: object
+      required:
+        - task_id
+        - user_id
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+    ChecklistData:
+      type: object
+      required:
+        - id
+        - task_id
+        - content
+        - is_completed
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        is_completed:
+          type: boolean
+    ChecklistCreateRequest:
+      type: object
+      required:
+        - task_id
+        - content
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+    ChecklistUpdateRequest:
+      type: object
+      required:
+        - checklist_id
+        - is_completed
+      properties:
+        checklist_id:
+          type: string
+          format: uuid
+        is_completed:
+          type: boolean
+  parameters:
+    CommunityIdQuery:
+      name: community_id
+      in: query
+      required: true
+      description: タスクを取得するコミュニティのID
+      schema:
+        type: string
+        format: uuid
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
