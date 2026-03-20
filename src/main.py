@@ -1,13 +1,17 @@
-from fastapi import FastAPI, HTTPException, status, Depends
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import create_engine, Column, String, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from fastapi import FastAPI, HTTPException, status, Depends # type: ignore
+from pydantic import BaseModel, EmailStr # type: ignore
+from sqlalchemy import create_engine, Column, String, DateTime # type: ignore
+from sqlalchemy.orm import declarative_base, sessionmaker, Session # type: ignore
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials # type: ignore
+security = HTTPBearer()
 import uuid
-import jwt
+import jwt # type: ignore
 import time
+import secrets # 招待コード生成用
+import string
 
 # --- 1. 初期設定 ---
 app = FastAPI(title="Sefirot Backend API", version="0.1.0", docs_url="/api/v1/docs")
@@ -37,6 +41,20 @@ class DBUser(Base):
     display_name = Column(String, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+class DBCommunity(Base):
+    __tablename__ = "communities"
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+    invite_code = Column(String, unique=True, index=True) # 参加用コード
+    created_by = Column(String, nullable=False) # 作成者のユーザーID
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class DBCommunityMember(Base):
+    __tablename__ = "community_members"
+    id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, index=True, nullable=False)
+    community_id = Column(String, index=True, nullable=False)
+
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -45,6 +63,13 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def get_current_user_id(auth: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        payload = jwt.decode(auth.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload.get("sub")
+    except:
+        raise HTTPException(status_code=401, detail="無効なトークンです")
 
 # --- 3. スキーマ ---
 class SignupRequest(BaseModel):
@@ -69,6 +94,22 @@ class AuthResponse(BaseModel):
     user: UserSchema
     access_token: str
     refresh_token: str
+
+class CommunityCreateRequest(BaseModel):
+    name: str
+
+class CommunityResponse(BaseModel):
+    id: str
+    name: str
+    invite_code: str
+    created_by: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True # SQLAlchemyのモデルをJSONに変換できるようにする魔法
+
+class CommunityJoinRequest(BaseModel):
+    invite_code: str
 
 # --- 4. ヘルパー関数 (トークン生成) ---
 def create_tokens(user_id: str):
@@ -120,3 +161,57 @@ def signin(request: SigninRequest, db: Session = Depends(get_db)):
     access_token, refresh_token = create_tokens(user.id)
 
     return AuthResponse(user=user, access_token=access_token, refresh_token=refresh_token)
+
+# コミュニティ作成
+@app.post("/api/v1/community/create", response_model=CommunityResponse, tags=["Community"]) # ここに追記！
+def create_community(
+    request: CommunityCreateRequest,
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    # ...中身の処理はそのまま...
+    code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+
+    new_comm = DBCommunity(
+        name=request.name,
+        invite_code=code,
+        created_by=current_user_id
+    )
+    db.add(new_comm)
+    db.commit()
+    db.refresh(new_comm)
+
+    # メンバー登録
+    member = DBCommunityMember(user_id=current_user_id, community_id=new_comm.id)
+    db.add(member)
+    db.commit()
+
+    return new_comm
+
+# コミュニティ参加
+@app.post("/api/v1/community/join", tags=["Community"])
+def join_community(
+    request: CommunityJoinRequest,
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    # コードでコミュニティを探す
+    comm = db.query(DBCommunity).filter(DBCommunity.invite_code == request.invite_code).first()
+    if not comm:
+        raise HTTPException(status_code=404, detail="招待コードが無効です")
+
+    # 既に参加していないかチェック
+    exists = db.query(DBCommunityMember).filter(
+        DBCommunityMember.user_id == current_user_id,
+        DBCommunityMember.community_id == comm.id
+    ).first()
+
+    if exists:
+        return {"message": "既に参加しています", "community": CommunityResponse.from_orm(comm)}
+
+    # メンバー登録
+    member = DBCommunityMember(user_id=current_user_id, community_id=comm.id)
+    db.add(member)
+    db.commit()
+
+    return {"message": "参加に成功しました", "community": CommunityResponse.from_orm(comm)}
