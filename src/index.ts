@@ -12,16 +12,17 @@ const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_fallback';
 const prisma = new PrismaClient(); // データベース操作用の魔法の杖
 
 app.use(cors({
-  origin: '*', // フロントエンドからの通信をすべて許可
+  origin: true, // '*' ではなく true にすると、アクセスしてきた相手のURLを自動で許可リストに入れてくれます
   credentials: true
 }));
 app.use(express.json());
+
 
 // --- 認証API (Auth) ---
 
 // 1. 新規登録 (Signup)
 app.post('/api/v1/auth/signup', async (req: Request, res: Response): Promise<any> => {
-  console.log('キタ！！フロントからSignupのリクエストが来ました！データ:', req.body);
+  console.log(`🚀 フロントからSignupのリクエストを受信！ Email: ${req.body.email}`);
   try {
     const { email, password, displayName } = req.body;
 
@@ -58,7 +59,7 @@ app.post('/api/v1/auth/signup', async (req: Request, res: Response): Promise<any
 
 // 2. ログイン (Signin)
 app.post('/api/v1/auth/signin', async (req: Request, res: Response): Promise<any> => {
-  console.log('キタ！！フロントからSigninのリクエストが来ました！データ:', req.body);
+  console.log(`🚀 フロントからSigninのリクエストを受信！ Email: ${req.body.email}`);
   try {
     const { email, password } = req.body;
 
