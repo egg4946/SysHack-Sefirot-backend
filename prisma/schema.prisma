@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 1. ユーザー
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  hashedPassword String
+  displayName    String
+  createdAt      DateTime @default(now())
+
+  // リレーション（他のテーブルとの繋がり）
+  communityMembers CommunityMember[]
+  tasks            Task[]            @relation("AssignedTasks")
+}
+
+// 2. コミュニティ
+model Community {
+  id         String   @id @default(uuid())
+  name       String
+  inviteCode String   @unique
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  members    CommunityMember[]
+  tasks      Task[]
+}
+
+// 3. コミュニティ所属情報 (多対多の中間テーブル)
+model CommunityMember {
+  id          String @id @default(uuid())
+  userId      String
+  communityId String
+
+  user        User      @relation(fields: [userId], references: [id])
+  community   Community @relation(fields: [communityId], references: [id])
+
+  // 同じユーザーが同じコミュニティに重複登録できないようにする
+  @@unique([userId, communityId])
+}
+
+// 4. タスク (Sefirotの核となる階層構造)
+model Task {
+  id          String    @id @default(uuid())
+  title       String
+  description String?   // ? は null を許容する（必須ではない）という意味
+  progress    Int       @default(0)
+  parentId    String?   // 親タスクのID
+  communityId String
+  assignedTo  String?   // 担当者のユーザーID
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id])
+  assignee    User?     @relation("AssignedTasks", fields: [assignedTo], references: [id])
+
+  // 親タスクと子タスクの繋がり（生命の樹構造）
+  parent      Task?     @relation("TaskHierarchy", fields: [parentId], references: [id])
+  children    Task[]    @relation("TaskHierarchy")
+}
