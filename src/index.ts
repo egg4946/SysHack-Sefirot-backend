@@ -5,6 +5,7 @@ import { env } from './config/env';
 // 分割したルート（コンポーネント）をインポート
 import authRoutes from './routes/auth';
 import communityRoutes from './routes/community';
+import taskRoutes from './routes/task';
 
 const app = express();
 const port = env.port;
@@ -37,6 +38,8 @@ app.use('/api/v1/auth', authRoutes);
 // 「/api/v1/community」から始まる通信は、すべて communityRoutes に任せる！
 app.use('/api/v1/community', communityRoutes);
 
+// 「/api/v1/task」から始まる通信は、すべて taskRoutes に任せる！
+app.use('/api/v1/task', taskRoutes);
 
 // サーバー起動
 app.listen(port, () => {
