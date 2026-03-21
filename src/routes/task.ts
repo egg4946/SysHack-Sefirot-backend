@@ -98,8 +98,8 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response): Pro
     const dueDate = sanitizeDueDate(req.body.dueDate);
     const userId = req.user!.id;
 
-    if (!title || !communityId || description === undefined || dueDate === undefined) {
-      return res.status(400).json({ detail: '入力が不正です。title/communityId/description/dueDateを確認してください' });
+    if (!title || !communityId || (req.body.description !== undefined && description === undefined) || (req.body.dueDate !== undefined && dueDate === undefined)) {
+    return res.status(400).json({ detail: '入力が不正です。title/communityId/description/dueDateを確認してください' });
     }
 
     if (parentId === undefined || assignedTo === undefined) {
@@ -196,7 +196,12 @@ router.patch('/:id', authenticateToken, async (req: AuthRequest, res: Response):
       return res.status(400).json({ detail: 'idが不正です' });
     }
 
-    if ((req.body.title !== undefined && !title) || description === undefined || dueDate === undefined || assignedTo === undefined) {
+    if (
+    (req.body.title !== undefined && !title) ||
+    (req.body.description !== undefined && description === undefined) ||
+    (req.body.dueDate !== undefined && dueDate === undefined) ||
+    (req.body.assignedTo !== undefined && assignedTo === undefined)
+    ) {
       return res.status(400).json({ detail: '更新データが不正です' });
     }
 
