@@ -23,7 +23,7 @@ const sanitizeEmail = (email: unknown): string | null => {
 };
 
 const isStrongPassword = (password: unknown): password is string => {
-  return typeof password === 'string' && password.length >= 8;
+  return typeof password === 'string' && password.length >= 1;
 };
 
 const sanitizeDisplayName = (displayName: unknown): string | null => {

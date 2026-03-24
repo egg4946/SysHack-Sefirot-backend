@@ -17,7 +17,8 @@ model User {
 
   // リレーション（他のテーブルとの繋がり）
   communityMembers CommunityMember[]
-  tasks            Task[]            @relation("AssignedTasks")
+  assignedTasks    Task[]            @relation("TaskAssignees")
+  createdTasks     Task[]            @relation("TaskCreator")
 }
 
 // 2. コミュニティ
@@ -28,8 +29,8 @@ model Community {
   createdBy  String
   createdAt  DateTime @default(now())
 
-  members    CommunityMember[]
-  tasks      Task[]
+  members CommunityMember[]
+  tasks   Task[]
 }
 
 // 3. コミュニティ所属情報 (多対多の中間テーブル)
@@ -38,29 +39,40 @@ model CommunityMember {
   userId      String
   communityId String
 
-  user        User      @relation(fields: [userId], references: [id])
-  community   Community @relation(fields: [communityId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+  community Community @relation(fields: [communityId], references: [id])
 
-  // 同じユーザーが同じコミュニティに重複登録できないようにする
   @@unique([userId, communityId])
 }
 
 // 4. タスク (Sefirotの核となる階層構造)
 model Task {
   id          String    @id @default(uuid())
-  title       String
-  description String?   // ? は null を許容する（必須ではない）という意味
+  title       String // YAMLの "name" に対応する部分（APIで変換して返します）
+  description String?
   progress    Int       @default(0)
-  parentId    String?   // 親タスクのID
+  parentId    String?
   communityId String
-  assignedTo  String?   // 担当者のユーザーID
-  dueDate     DateTime?
+  createdBy   String
+  status      String    @default("未着手") // YAMLで追加した状態管理
+  priority    String    @default("中") // YAMLで追加した優先度
+  deadline    DateTime? // 旧 dueDate
   createdAt   DateTime  @default(now())
 
-  community   Community @relation(fields: [communityId], references: [id])
-  assignee    User?     @relation("AssignedTasks", fields: [assignedTo], references: [id])
+  community Community @relation(fields: [communityId], references: [id])
+  creator   User      @relation("TaskCreator", fields: [createdBy], references: [id])
+  parent    Task?     @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Task[]    @relation("TaskHierarchy")
 
-  // 親タスクと子タスクの繋がり（生命の樹構造）
-  parent      Task?     @relation("TaskHierarchy", fields: [parentId], references: [id])
-  children    Task[]    @relation("TaskHierarchy")
+  assignees  User[]      @relation("TaskAssignees") // 複数人アサイン対応
+  checklists Checklist[]
+}
+
+model Checklist {
+  id          String  @id @default(uuid())
+  taskId      String
+  content     String
+  isCompleted Boolean @default(false)
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }

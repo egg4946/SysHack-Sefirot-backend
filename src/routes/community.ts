@@ -2,10 +2,11 @@ import { Prisma } from '@prisma/client';
 import { randomInt } from 'crypto';
 import { Response, Router } from 'express';
 import prisma from '../lib/prisma';
-import { authenticateToken, AuthRequest } from '../middlewares/auth'; // ← 関所を呼び出し
+import { authenticateToken, AuthRequest } from '../middlewares/auth';
 
 const router = Router();
 
+// --- ユーティリティ関数 ---
 const generateInviteCode = (): string => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = '';
@@ -16,29 +17,23 @@ const generateInviteCode = (): string => {
 };
 
 const sanitizeCommunityName = (name: unknown): string | null => {
-  if (typeof name !== 'string') {
-    return null;
-  }
-
+  if (typeof name !== 'string') return null;
   const normalized = name.trim();
-  if (normalized.length < 1 || normalized.length > 100) {
-    return null;
-  }
-
+  if (normalized.length < 1 || normalized.length > 100) return null;
   return normalized;
 };
 
 const sanitizeInviteCode = (inviteCode: unknown): string | null => {
-  if (typeof inviteCode !== 'string') {
-    return null;
-  }
-
+  if (typeof inviteCode !== 'string') return null;
   const normalized = inviteCode.trim().toUpperCase();
-  if (!/^[A-Z0-9]{6}$/.test(normalized)) {
-    return null;
-  }
-
+  if (!/^[A-Z0-9]{6}$/.test(normalized)) return null;
   return normalized;
+};
+
+const parseId = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
 };
 
 const formatCommunity = (community: { id: string; name: string; createdBy: string; createdAt: Date }) => {
@@ -46,11 +41,11 @@ const formatCommunity = (community: { id: string; name: string; createdBy: strin
     id: community.id,
     name: community.name,
     created_by: community.createdBy,
-    created_at: community.createdAt,
+    created_at: community.createdAt.toISOString(),
   };
 };
 
-// コミュニティ作成 ( /api/v1/community/create になります )
+// 1. コミュニティ作成 ( POST /api/v1/community/create )
 router.post('/create', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const name = sanitizeCommunityName(req.body.name);
@@ -92,10 +87,10 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
   }
 });
 
-// コミュニティ参加 ( /api/v1/community/join になります )
+// 2. コミュニティ参加 ( POST /api/v1/community/join )
 router.post('/join', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const inviteCode = sanitizeInviteCode(req.body.invite_code ?? req.body.invite_Code);
+    const inviteCode = sanitizeInviteCode(req.body.invite_code);
     const userId = req.user!.id;
 
     if (!inviteCode) {
@@ -132,49 +127,10 @@ router.post('/join', authenticateToken, async (req: AuthRequest, res: Response):
   }
 });
 
-// 3. 参加中のコミュニティ一覧取得 ( /api/v1/community/list )
-router.get('/list', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
-  try {
-    const userId = req.user!.id;
-
-    // 自分が所属しているコミュニティを検索し、同時に「参加人数」もカウントして取得する！
-    const memberships = await prisma.communityMember.findMany({
-      where: { userId: userId },
-      include: {
-        community: {
-          include: {
-            _count: {
-              select: { members: true } // ここが参加人数の自動計算の魔法
-            }
-          }
-        }
-      },
-      orderBy: {
-        community: { createdAt: 'desc' } // 新しい順に並べる
-      }
-    });
-
-    // フロントエンドの仕様書（カード表示）に合わせて、データを綺麗な形に整形して返す
-    const communities = memberships.map(m => ({
-      id: m.community.id,
-      name: m.community.name,
-      invite_code: m.community.inviteCode,
-      created_by: m.community.createdBy,
-      created_at: m.community.createdAt,
-      member_count: m.community._count.members // 参加人数！
-    }));
-
-    return res.status(200).json(communities);
-
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ detail: 'コミュニティ一覧の取得中にエラーが発生しました' });
-  }
-});
-
+// 3. 招待コードの発行 ( POST /api/v1/community/invite )
 router.post('/invite', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const communityId = typeof req.body.community_id === 'string' ? req.body.community_id.trim() : '';
+    const communityId = parseId(req.body.community_id);
     const limitRaw = req.body.limit;
     const userId = req.user!.id;
 
@@ -203,6 +159,95 @@ router.post('/invite', authenticateToken, async (req: AuthRequest, res: Response
   } catch (error) {
     console.error(error);
     return res.status(500).json({ detail: '招待コード発行中にエラーが発生しました' });
+  }
+});
+
+// 4. 【新規】メンバー一覧取得 ( GET /api/v1/community/members?community_id=xxx )
+router.get('/members', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const communityId = parseId(req.query.community_id);
+    const userId = req.user!.id;
+
+    if (!communityId) {
+      return res.status(400).json({ detail: 'community_idが必要です' });
+    }
+
+    // 自分がそのコミュニティに所属しているかチェック
+    const isMember = await prisma.communityMember.findUnique({
+      where: { userId_communityId: { userId, communityId } }
+    });
+
+    if (!isMember) {
+      return res.status(403).json({ detail: 'このコミュニティのメンバー情報を閲覧する権限がありません' });
+    }
+
+    // コミュニティの全メンバーを取得して、Userスキーマの形に整形
+    const members = await prisma.communityMember.findMany({
+      where: { communityId },
+      include: { user: true },
+      orderBy: { user: { createdAt: 'asc' } }
+    });
+
+    const formattedMembers = members.map(m => ({
+      id: m.user.id,
+      email: m.user.email,
+      display_name: m.user.displayName,
+      created_at: m.user.createdAt.toISOString()
+    }));
+
+    return res.status(200).json(formattedMembers);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: 'メンバー一覧の取得中にエラーが発生しました' });
+  }
+});
+
+// 5. 【新規】メンバーのキック ( POST /api/v1/community/kick )
+router.post('/kick', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const communityId = parseId(req.body.community_id);
+    const targetUserId = parseId(req.body.user_id);
+    const requesterId = req.user!.id;
+
+    if (!communityId || !targetUserId) {
+      return res.status(400).json({ detail: 'community_idとuser_idが必要です' });
+    }
+
+    // キック権限の確認（コミュニティ作成者のみキック可能とする）
+    const community = await prisma.community.findUnique({
+      where: { id: communityId }
+    });
+
+    if (!community) {
+      return res.status(404).json({ detail: 'コミュニティが見つかりません' });
+    }
+
+    if (community.createdBy !== requesterId) {
+      return res.status(403).json({ detail: 'メンバーをキックする権限がありません（作成者のみ可能です）' });
+    }
+
+    // 自分自身をキックしようとしていないかチェック
+    if (requesterId === targetUserId) {
+      return res.status(400).json({ detail: '作成者自身をキックすることはできません' });
+    }
+
+    // メンバーが存在するか確認して削除
+    const targetMember = await prisma.communityMember.findUnique({
+      where: { userId_communityId: { userId: targetUserId, communityId } }
+    });
+
+    if (!targetMember) {
+      return res.status(404).json({ detail: '指定されたユーザーはこのコミュニティのメンバーではありません' });
+    }
+
+    await prisma.communityMember.delete({
+      where: { userId_communityId: { userId: targetUserId, communityId } }
+    });
+
+    return res.status(200).json({ message: 'メンバーをキックしました' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: 'キック処理中にエラーが発生しました' });
   }
 });
 
