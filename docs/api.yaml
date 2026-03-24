@@ -1,17 +1,17 @@
 openapi: 3.0.3
 info:
   title: Sefirot Backend API
-  version: 0.1.0
-  description: 課題進捗共有サービス「Sefirot」のAPI仕様書
+  version: 1.0.0
+  description: 課題進捗共有サービス「Sefirot」のAPI仕様書（完全版）
 servers:
   - url: http://localhost:8000/api/v1
 tags:
   - name: Auth
-    description: 認証関係（登録・ログイン・トークン更新）
+    description: 認証関係（登録・ログイン・トークン更新・ユーザー情報）
   - name: Community
-    description: コミュニティ（プロジェクト）の作成・参加
+    description: コミュニティ（プロジェクト）の作成・参加・メンバー管理
   - name: Task
-    description: タスクの追加・進捗更新・アサイン
+    description: タスクの追加・進捗更新・状態更新・アサイン
   - name: Checklist
     description: タスク内チェックリストの管理
 security:
@@ -154,6 +154,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CommunityInviteResponse"
+  /community/members:
+    get:
+      summary: コミュニティの参加メンバー一覧を取得
+      tags:
+        - Community
+      parameters:
+        - $ref: "#/components/parameters/CommunityIdQuery"
+      responses:
+        "200":
+          description: メンバー一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+  /community/kick:
+    post:
+      summary: メンバーをコミュニティからキック（追放）する
+      tags:
+        - Community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityKickRequest"
+      responses:
+        "200":
+          description: キック成功
   /tasks:
     get:
       summary: Get tasks in a community
@@ -200,6 +230,24 @@ paths:
       responses:
         "200":
           description: Progress updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskData"
+  /tasks/status:
+    patch:
+      summary: タスクの状態（未着手/進行中/完了）を更新
+      tags:
+        - Task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskStatusRequest"
+      responses:
+        "200":
+          description: Status updated
           content:
             application/json:
               schema:
@@ -394,6 +442,18 @@ components:
         limit:
           type: string
           format: date-time
+    CommunityKickRequest:
+      type: object
+      required:
+        - community_id
+        - user_id
+      properties:
+        community_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
     MeResponse:
       type: object
       required:
@@ -414,6 +474,7 @@ components:
         - name
         - progress
         - priority
+        - status
         - created_at
       properties:
         id:
@@ -436,6 +497,10 @@ components:
         priority:
           type: string
           enum: [大, 中, 小]
+        status:
+          type: string
+          enum: [未着手, 進行中, 完了]
+          description: タスクの現在の状態
         deadline:
           type: string
           format: date-time
@@ -477,6 +542,9 @@ components:
         priority:
           type: string
           enum: [大, 中, 小]
+        status:
+          type: string
+          enum: [未着手, 進行中, 完了]
         deadline:
           type: string
           format: date-time
@@ -493,6 +561,18 @@ components:
           type: integer
           minimum: 0
           maximum: 100
+    TaskStatusRequest:
+      type: object
+      required:
+        - task_id
+        - status
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [未着手, 進行中, 完了]
     TaskAssignRequest:
       type: object
       required:
@@ -550,7 +630,7 @@ components:
       name: community_id
       in: query
       required: true
-      description: タスクを取得するコミュニティのID
+      description: 対象となるコミュニティのID
       schema:
         type: string
         format: uuid
