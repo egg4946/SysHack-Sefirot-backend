@@ -1,0 +1,69 @@
+### 変数の設定（URLの固定と、トークン置き場）
+@baseUrl = http://localhost:8000/api/v1
+# 👇 テスト2でログイン成功したら、返ってきた access_token をここに貼り付けてください！
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjZmRmYWJjMS1hMGJlLTQyZjctYjFkNS0yNTZmNTRiMDA2MDMiLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzc0Mzc5NDU3LCJleHAiOjE3NzQzODMwNTd9.XtmqMR8A6I84GNccOa_lv1C-KbJL4Lt7yZVn93JhJSg
+
+
+### ==========================================
+### 1. 認証系 (Auth)
+### ==========================================
+
+### テスト1：新規登録 (Signup)
+# 👇 この上の「Send Request」という小さな文字をクリックすると通信します！
+POST {{baseUrl}}/auth/signup
+Content-Type: application/json
+
+{
+  "email": "test-hackathon@example.com",
+  "password": "password123",
+  "display_name": "ハッカソン太郎"
+}
+
+### テスト2：ログイン (Signin)
+# 成功すると右側の画面にJSONが返ってきます。
+# その中の "access_token" の中身（eyJ...から始まる長い文字列）をコピーして、一番上の @token の右側に貼り付けてください！
+POST {{baseUrl}}/auth/signin
+Content-Type: application/json
+
+{
+  "email": "test-hackathon@example.com",
+  "password": "password123"
+}
+
+### テスト3：自分の情報を取得 (Me)
+# ちゃんと @token が設定されていれば、自分の情報が返ってきます。
+GET {{baseUrl}}/me
+Authorization: Bearer {{token}}
+
+
+### ==========================================
+### 2. コミュニティ系 (Community)
+### ==========================================
+
+### テスト4：コミュニティの作成
+# 成功すると、作成されたコミュニティの "id" と "invite_code" が返ってきます。
+POST {{baseUrl}}/community/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "SysHack 開発プロジェクト"
+}
+
+
+### ==========================================
+### 3. タスク系 (Task)
+### ==========================================
+
+### テスト5：タスクの作成
+# 👇 "community_id" の部分を、テスト4で返ってきたコミュニティの "id" に書き換えて送信してください！
+POST {{baseUrl}}/tasks/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "community_id": "79f10802-9007-49c4-bfa3-367bd92cfd63",
+  "name": "API仕様書の作成",
+  "priority": "大",
+  "status": "完了"
+}

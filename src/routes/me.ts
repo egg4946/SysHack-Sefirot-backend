@@ -4,6 +4,7 @@ import { authenticateToken, AuthRequest } from '../middlewares/auth';
 
 const router = Router();
 
+// 自分の情報とコミュニティ一覧を取得 ( GET /api/v1/me )
 router.get('/me', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
@@ -16,9 +17,16 @@ router.get('/me', authenticateToken, async (req: AuthRequest, res: Response): Pr
       return res.status(404).json({ detail: 'ユーザーが見つかりません' });
     }
 
+    // ✨ 修正: _count で参加人数を計算して取得！ ✨
     const memberships = await prisma.communityMember.findMany({
       where: { userId },
-      include: { community: true },
+      include: {
+        community: {
+          include: {
+            _count: { select: { members: true } }
+          }
+        }
+      },
       orderBy: { community: { createdAt: 'desc' } },
     });
 
@@ -27,12 +35,14 @@ router.get('/me', authenticateToken, async (req: AuthRequest, res: Response): Pr
         id: user.id,
         email: user.email,
         display_name: user.displayName,
-        created_at: user.createdAt,
+        created_at: user.createdAt.toISOString(),
       },
       user_communities: memberships.map((m) => ({
         id: m.community.id,
         name: m.community.name,
-        created_at: m.community.createdAt,
+        invite_code: m.community.inviteCode, // 👈 復活！
+        member_count: m.community._count.members, // 👈 復活！
+        created_at: m.community.createdAt.toISOString(),
         created_by: m.community.createdBy,
       })),
     });
