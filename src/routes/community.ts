@@ -41,6 +41,15 @@ const sanitizeInviteCode = (inviteCode: unknown): string | null => {
   return normalized;
 };
 
+const formatCommunity = (community: { id: string; name: string; createdBy: string; createdAt: Date }) => {
+  return {
+    id: community.id,
+    name: community.name,
+    created_by: community.createdBy,
+    created_at: community.createdAt,
+  };
+};
+
 // コミュニティ作成 ( /api/v1/community/create になります )
 router.post('/create', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
@@ -66,7 +75,7 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
           },
         });
 
-        return res.status(200).json(newCommunity);
+        return res.status(200).json(formatCommunity(newCommunity));
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
           continue;
@@ -86,7 +95,7 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
 // コミュニティ参加 ( /api/v1/community/join になります )
 router.post('/join', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const inviteCode = sanitizeInviteCode(req.body.invite_code ?? req.body.inviteCode);
+    const inviteCode = sanitizeInviteCode(req.body.invite_code ?? req.body.invite_Code);
     const userId = req.user!.id;
 
     if (!inviteCode) {
@@ -108,14 +117,14 @@ router.post('/join', authenticateToken, async (req: AuthRequest, res: Response):
     });
 
     if (existingMember) {
-      return res.status(200).json({ message: '既に参加しています', community });
+      return res.status(200).json(formatCommunity(community));
     }
 
     await prisma.communityMember.create({
       data: { userId: userId, communityId: community.id }
     });
 
-    return res.status(200).json({ message: '参加に成功しました', community });
+    return res.status(200).json(formatCommunity(community));
 
   } catch (error) {
     console.error(error);
@@ -160,6 +169,40 @@ router.get('/list', authenticateToken, async (req: AuthRequest, res: Response): 
   } catch (error) {
     console.error(error);
     return res.status(500).json({ detail: 'コミュニティ一覧の取得中にエラーが発生しました' });
+  }
+});
+
+router.post('/invite', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const communityId = typeof req.body.community_id === 'string' ? req.body.community_id.trim() : '';
+    const limitRaw = req.body.limit;
+    const userId = req.user!.id;
+
+    if (!communityId) {
+      return res.status(400).json({ detail: 'community_idが必要です' });
+    }
+
+    const member = await prisma.communityMember.findUnique({
+      where: { userId_communityId: { userId, communityId } },
+    });
+
+    if (!member) {
+      return res.status(403).json({ detail: 'このコミュニティへの招待コード発行権限がありません' });
+    }
+
+    const community = await prisma.community.findUnique({ where: { id: communityId } });
+    if (!community) {
+      return res.status(404).json({ detail: 'コミュニティが見つかりません' });
+    }
+
+    const parsedLimit = typeof limitRaw === 'string' && !Number.isNaN(new Date(limitRaw).getTime())
+      ? new Date(limitRaw)
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    return res.status(200).json({ invite_code: community.inviteCode, limit: parsedLimit.toISOString() });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: '招待コード発行中にエラーが発生しました' });
   }
 });
 

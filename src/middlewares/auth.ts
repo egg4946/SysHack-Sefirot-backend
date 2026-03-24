@@ -24,6 +24,9 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     if (typeof payload?.sub !== 'string') {
       return res.status(401).json({ detail: '無効なトークンです' });
     }
+    if (payload.type && payload.type !== 'access') {
+      return res.status(401).json({ detail: '無効なトークンです' });
+    }
 
     req.user = { id: payload.sub };
     next();

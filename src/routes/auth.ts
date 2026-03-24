@@ -3,12 +3,15 @@ import { Request, Response, Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import prisma from '../lib/prisma';
+import { authenticateToken } from '../middlewares/auth';
 import { createRateLimit } from '../middlewares/rateLimit';
 
 
 const router = Router();
 const signupRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 20 });
 const signinRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 10 });
+const refreshRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 30 });
+const revokedRefreshTokens = new Set<string>();
 
 const sanitizeEmail = (email: unknown): string | null => {
   if (typeof email !== 'string') {
@@ -35,16 +38,33 @@ const sanitizeDisplayName = (displayName: unknown): string | null => {
   return normalized;
 };
 
+const formatUser = (user: { id: string; email: string; displayName: string; createdAt: Date }) => {
+  return {
+    id: user.id,
+    email: user.email,
+    display_name: user.displayName,
+    created_at: user.createdAt,
+  };
+};
+
+const createAccessToken = (userId: string): string => {
+  return jwt.sign({ sub: userId, type: 'access' }, env.jwtSecret, { expiresIn: '1h' });
+};
+
+const createRefreshToken = (userId: string): string => {
+  return jwt.sign({ sub: userId, type: 'refresh' }, env.jwtSecret, { expiresIn: '7d' });
+};
+
 // 新規登録 ( /api/v1/auth/signup として後で登録されます )
 router.post('/signup', signupRateLimit, async (req: Request, res: Response): Promise<any> => {
   try {
     const email = sanitizeEmail(req.body.email);
     const password = req.body.password;
-    const displayName = sanitizeDisplayName(req.body.displayName);
+    const displayName = sanitizeDisplayName(req.body.display_name);
 
     if (!email || !displayName || !isStrongPassword(password)) {
       return res.status(400).json({
-        detail: '入力が不正です。email/displayName/passwordを確認してください',
+        detail: '入力が不正です。email/display_name/passwordを確認してください',
       });
     }
 
@@ -59,10 +79,14 @@ router.post('/signup', signupRateLimit, async (req: Request, res: Response): Pro
       data: { email, hashedPassword, displayName },
     });
 
-    const token = jwt.sign({ sub: newUser.id }, env.jwtSecret, { expiresIn: '1h' });
+    const accessToken = createAccessToken(newUser.id);
+    const refreshToken = createRefreshToken(newUser.id);
 
-    const { hashedPassword: _, ...userWithoutPassword } = newUser;
-    return res.status(200).json({ user: userWithoutPassword, access_token: token });
+    return res.status(200).json({
+      user: formatUser(newUser),
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
 
   } catch (error) {
     console.error(error);
@@ -90,10 +114,14 @@ router.post('/signin', signinRateLimit, async (req: Request, res: Response): Pro
       return res.status(401).json({ detail: 'メールアドレスまたはパスワードが間違っています' });
     }
 
-    const token = jwt.sign({ sub: user.id }, env.jwtSecret, { expiresIn: '1h' });
+    const accessToken = createAccessToken(user.id);
+    const refreshToken = createRefreshToken(user.id);
 
-    const { hashedPassword: _, ...userWithoutPassword } = user;
-    return res.status(200).json({ user: userWithoutPassword, access_token: token });
+    return res.status(200).json({
+      user: formatUser(user),
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
 
   } catch (error) {
     console.error(error);
@@ -101,4 +129,40 @@ router.post('/signin', signinRateLimit, async (req: Request, res: Response): Pro
   }
 });
 
-export default router;
+router.post('/refresh', refreshRateLimit, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const refreshToken = typeof req.body.refresh_token === 'string' ? req.body.refresh_token : null;
+    if (!refreshToken) {
+      return res.status(400).json({ detail: 'refresh_tokenが必要です' });
+    }
+
+    if (revokedRefreshTokens.has(refreshToken)) {
+      return res.status(401).json({ detail: '無効なトークンです' });
+    }
+
+    const decoded = jwt.verify(refreshToken, env.jwtSecret) as jwt.JwtPayload;
+    if (decoded.type !== 'refresh' || typeof decoded.sub !== 'string') {
+      return res.status(401).json({ detail: '無効なトークンです' });
+    }
+
+    const newAccessToken = createAccessToken(decoded.sub);
+    const newRefreshToken = createRefreshToken(decoded.sub);
+    revokedRefreshTokens.add(refreshToken);
+
+    return res.status(200).json({ access_token: newAccessToken, refresh_token: newRefreshToken });
+  } catch {
+    return res.status(401).json({ detail: '無効なトークンです' });
+  }
+});
+
+router.post('/logout', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const refreshToken = typeof req.body.refresh_token === 'string' ? req.body.refresh_token : null;
+  if (!refreshToken) {
+    return res.status(400).json({ detail: 'refresh_tokenが必要です' });
+  }
+
+  revokedRefreshTokens.add(refreshToken);
+  return res.status(204).send();
+});
+
+export default router; //いったんここまで

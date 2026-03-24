@@ -4,7 +4,9 @@ import { env } from './config/env';
 
 // 分割したルート（コンポーネント）をインポート
 import authRoutes from './routes/auth';
+import checklistRoutes from './routes/checklist';
 import communityRoutes from './routes/community';
+import meRoutes from './routes/me';
 import taskRoutes from './routes/task';
 
 const app = express();
@@ -38,8 +40,14 @@ app.use('/api/v1/auth', authRoutes);
 // 「/api/v1/community」から始まる通信は、すべて communityRoutes に任せる！
 app.use('/api/v1/community', communityRoutes);
 
-// 「/api/v1/task」から始まる通信は、すべて taskRoutes に任せる！
-app.use('/api/v1/task', taskRoutes);
+// 「/api/v1/tasks」から始まる通信は、すべて taskRoutes に任せる！
+app.use('/api/v1/tasks', taskRoutes);
+
+// 「/api/v1/checklists」から始まる通信は、すべて checklistRoutes に任せる！
+app.use('/api/v1/checklists', checklistRoutes);
+
+// 「/api/v1」から始まる通信のうち、/me は meRoutes に任せる！
+app.use('/api/v1', meRoutes);
 
 // サーバー起動
 app.listen(port, () => {
