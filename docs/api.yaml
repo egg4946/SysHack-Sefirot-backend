@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Sefirot Backend API
-  version: 1.0.0
-  description: 課題進捗共有サービス「Sefirot」のAPI仕様書（完全版）
+  version: 1.1.0
+  description: 課題進捗共有サービス「Sefirot」のAPI仕様書（タスク詳細・編集・人数追加版）
 servers:
   - url: http://localhost:8000/api/v1
 tags:
@@ -11,7 +11,7 @@ tags:
   - name: Community
     description: コミュニティ（プロジェクト）の作成・参加・メンバー管理
   - name: Task
-    description: タスクの追加・進捗更新・状態更新・アサイン
+    description: タスクの追加・編集・進捗更新・状態更新・アサイン
   - name: Checklist
     description: タスク内チェックリストの管理
 security:
@@ -216,6 +216,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TaskData"
+  /tasks/update:
+    patch:
+      summary: タスクの基本情報（名前、内容、優先度、期限）を編集する
+      tags:
+        - Task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdateRequest"
+      responses:
+        "200":
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskData"
   /tasks/progress:
     patch:
       summary: Update task progress
@@ -391,6 +409,8 @@ components:
       required:
         - id
         - name
+        - invite_code
+        - member_count
         - created_at
       properties:
         id:
@@ -399,6 +419,12 @@ components:
         name:
           type: string
           description: コミュニティ名
+        invite_code:
+          type: string
+          description: 招待コード
+        member_count:
+          type: integer
+          description: 参加人数
         created_at:
           type: string
           format: date-time
@@ -490,6 +516,10 @@ components:
           description: 子タスクの場合、親タスクのID
         name:
           type: string
+        description:
+          type: string
+          nullable: true
+          description: タスクの内容・詳細
         progress:
           type: integer
           minimum: 0
@@ -539,6 +569,9 @@ components:
           nullable: true
         name:
           type: string
+        description:
+          type: string
+          nullable: true
         priority:
           type: string
           enum: [大, 中, 小]
@@ -548,6 +581,26 @@ components:
         deadline:
           type: string
           format: date-time
+    TaskUpdateRequest:
+      type: object
+      required:
+        - task_id
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum: [大, 中, 小]
+        deadline:
+          type: string
+          format: date-time
+          nullable: true
     TaskProgressRequest:
       type: object
       required:

@@ -36,10 +36,12 @@ const parseId = (value: unknown): string | null => {
   return normalized.length > 0 ? normalized : null;
 };
 
-const formatCommunity = (community: { id: string; name: string; createdBy: string; createdAt: Date }) => {
+const formatCommunity = (community: any) => {
   return {
     id: community.id,
     name: community.name,
+    invite_code: community.inviteCode, // 👈 追加
+    member_count: community._count?.members || 1, // 👈 追加（作成直後は1人）
     created_by: community.createdBy,
     created_at: community.createdAt.toISOString(),
   };
@@ -98,7 +100,10 @@ router.post('/join', authenticateToken, async (req: AuthRequest, res: Response):
     }
 
     const community = await prisma.community.findUnique({
-      where: { inviteCode }
+      where: { inviteCode },
+      include: {
+        _count: { select: { members: true } }
+      }
     });
 
     if (!community) {
@@ -118,6 +123,11 @@ router.post('/join', authenticateToken, async (req: AuthRequest, res: Response):
     await prisma.communityMember.create({
       data: { userId: userId, communityId: community.id }
     });
+
+    if (community._count) {
+      community._count.members += 1;
+    } else {community._count = { members: 2 };
+    }
 
     return res.status(200).json(formatCommunity(community));
 

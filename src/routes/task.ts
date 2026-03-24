@@ -51,7 +51,7 @@ const buildTaskData = async (taskId: string) => {
     include: {
       assignees: true,
       checklists: true,
-      creator: true // 👈 修正: 作成者の情報を引くために必要
+      creator: true
     },
   });
 
@@ -62,6 +62,7 @@ const buildTaskData = async (taskId: string) => {
     community_id: task.communityId,
     parent_task_id: task.parentId,
     name: task.title,
+    description: task.description, // ✨ 復活: タスクの内容
     progress: task.progress,
     priority: task.priority,
     status: task.status,
@@ -115,8 +116,8 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
     const communityId = parseId(req.body.community_id);
     const parentTaskId = req.body.parent_task_id === null ? null : parseId(req.body.parent_task_id);
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    const description = typeof req.body.description === 'string' ? req.body.description.trim() : null; // ✨ 復活
     const priority = parsePriority(req.body.priority);
-    // 👈 修正: フロントから送られてきた場合のみセットし、無ければPrismaのデフォルトに任せる
     const status = parseStatus(req.body.status) || undefined;
     const deadline = parseDeadline(req.body.deadline);
 
@@ -140,11 +141,12 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
     const newTask = await prisma.task.create({
       data: {
         title: name,
+        description, // ✨ 復活
         communityId,
         parentId: parentTaskId,
         createdBy: userId,
         priority,
-        status, // undefinedの場合はPrismaがデフォルトの"未着手"を入れてくれる
+        status,
         deadline,
       },
     });
@@ -157,7 +159,43 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
   }
 });
 
-// 3. 進捗更新 ＆ ✨親タスク自動計算✨
+// ✨ 3. 【新規】タスクの基本情報編集 ( PATCH /api/v1/tasks/update ) ✨
+router.patch('/update', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const taskId = parseId(req.body.task_id);
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : undefined;
+    const description = typeof req.body.description === 'string' ? req.body.description.trim() : (req.body.description === null ? null : undefined);
+    const priority = parsePriority(req.body.priority);
+    const deadline = req.body.deadline !== undefined ? parseDeadline(req.body.deadline) : undefined;
+
+    if (!taskId) return res.status(400).json({ detail: 'task_idが不正です' });
+
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!task) return res.status(404).json({ detail: 'タスクが見つかりません' });
+
+    const member = await isCommunityMember(userId, task.communityId);
+    if (!member) return res.status(403).json({ detail: '編集権限がありません' });
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        title: name !== undefined && name !== '' ? name : undefined,
+        description,
+        priority: priority || undefined,
+        deadline,
+      },
+    });
+
+    const taskData = await buildTaskData(taskId);
+    return res.status(200).json(taskData);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: 'タスクの更新中にエラーが発生しました' });
+  }
+});
+
+// 4. 進捗更新 ＆ 親タスク自動計算
 router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
@@ -166,21 +204,17 @@ router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Respo
 
     if (!taskId || progress === null) return res.status(400).json({ detail: 'task_id/progressが不正です' });
 
-    // 👈 修正: 更新前のタスクを取得し、parentIdを確保しておく
     const taskBeforeUpdate = await prisma.task.findUnique({ where: { id: taskId } });
     if (!taskBeforeUpdate) return res.status(404).json({ detail: 'タスクが見つかりません' });
 
     const member = await isCommunityMember(userId, taskBeforeUpdate.communityId);
     if (!member) return res.status(403).json({ detail: '編集権限がありません' });
 
-    // 1. 自身の進捗を更新
     await prisma.task.update({
       where: { id: taskId },
       data: { progress },
     });
 
-    // ✨ 2. 親タスクの自動計算ロジック ✨
-    // 確保しておいた parentId を使って確実に兄弟を探す
     if (taskBeforeUpdate.parentId) {
       const siblingTasks = await prisma.task.findMany({
         where: { parentId: taskBeforeUpdate.parentId }
@@ -206,7 +240,7 @@ router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Respo
   }
 });
 
-// 4. ステータス更新
+// 5. ステータス更新
 router.patch('/status', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
@@ -234,7 +268,7 @@ router.patch('/status', authenticateToken, async (req: AuthRequest, res: Respons
   }
 });
 
-// 5. 担当者アサイン
+// 6. 担当者アサイン
 router.post('/assign', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
