@@ -165,4 +165,4 @@ router.post('/logout', authenticateToken, async (req: Request, res: Response): P
   return res.status(204).send();
 });
 
-export default router;
+export default router; //いったんここまで
