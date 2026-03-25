@@ -4,6 +4,7 @@ import { env } from './config/env';
 
 // 分割したルート（コンポーネント）をインポート
 import authRoutes from './routes/auth';
+import chatRouter from './routes/chat';
 import checklistRoutes from './routes/checklist';
 import communityRoutes from './routes/community';
 import meRoutes from './routes/me';
@@ -63,6 +64,9 @@ app.use('/api/v1', meRoutes);
 
 // 「/api/v1」から始まる通信のうち、/member は memberRouter に任せる！
 app.use('/api/v1/community', memberRouter);
+
+// 「/api/v1/chat」から始まる通信は、すべて chatRouter に任せる！
+app.use('/api/v1/chat', chatRouter);
 
 // サーバー起動
 app.listen(port, () => {
