@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import checklistRoutes from './routes/checklist';
 import communityRoutes from './routes/community';
 import meRoutes from './routes/me';
+import memberRouter from './routes/member';
 import taskRoutes from './routes/task';
 
 const app = express();
@@ -59,6 +60,9 @@ app.use('/api/v1/checklists', checklistRoutes);
 
 // 「/api/v1」から始まる通信のうち、/me は meRoutes に任せる！
 app.use('/api/v1', meRoutes);
+
+// 「/api/v1」から始まる通信のうち、/member は memberRouter に任せる！
+app.use('/api/v1/community', memberRouter);
 
 // サーバー起動
 app.listen(port, () => {

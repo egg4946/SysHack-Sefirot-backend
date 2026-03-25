@@ -1,19 +1,21 @@
 openapi: 3.0.3
 info:
   title: Sefirot Backend API
-  version: 2.0.0
-  description: 課題進捗共有サービス「Sefirot」のAPI仕様書（個人進捗・表示名・ソート機能対応版）
+  version: 2.1.0
+  description: 課題進捗共有サービス「Sefirot」のAPI仕様書（個人詳細・全体チャット機能追加版）
 servers:
   - url: http://localhost:8000/api/v1
 tags:
   - name: Auth
     description: 認証関係（登録・ログイン・トークン更新・ユーザー情報）
   - name: Community
-    description: コミュニティの作成・参加・メンバー管理・表示名変更
+    description: コミュニティの作成・参加・メンバー管理・表示名・個人詳細
   - name: Task
     description: タスクの追加・編集・進捗更新・状態更新・アサイン
   - name: Checklist
     description: タスク内チェックリストの管理
+  - name: Chat
+    description: プロジェクト全体のチャット（タイムライン）機能
 security:
   - bearerAuth: []
 paths:
@@ -184,6 +186,27 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/User"
+  /community/member/detail:
+    get:
+      summary: メンバーの詳細情報（サマリーと担当タスク）を取得
+      tags:
+        - Community
+      parameters:
+        - $ref: "#/components/parameters/CommunityIdQuery"
+        - name: user_id
+          in: query
+          required: true
+          description: 詳細を見たいメンバーのユーザーID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: メンバー詳細データ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberDetailResponse"
   /community/kick:
     post:
       summary: メンバーをコミュニティからキック（追放）する
@@ -336,6 +359,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ChecklistData"
+  /chat/messages:
+    get:
+      summary: プロジェクト全体のチャット履歴を取得
+      tags:
+        - Chat
+      parameters:
+        - $ref: "#/components/parameters/CommunityIdQuery"
+      responses:
+        "200":
+          description: メッセージの一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessageData"
+  /chat/send:
+    post:
+      summary: チャットにメッセージを送信
+      tags:
+        - Chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatSendRequest"
+      responses:
+        "200":
+          description: 送信されたメッセージ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessageData"
 
 components:
   schemas:
@@ -526,6 +583,62 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CommunityData"
+    MemberDetailResponse:
+      type: object
+      required:
+        - user
+        - summary
+        - tasks
+      properties:
+        user:
+          type: object
+          required: [id, display_name, joined_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            display_name:
+              type: string
+              description: プロジェクト内表示名
+            joined_at:
+              type: string
+              format: date-time
+              description: プロジェクト参加日
+        summary:
+          type: object
+          required: [total_tasks, completed, in_progress, not_started]
+          properties:
+            total_tasks:
+              type: integer
+            completed:
+              type: integer
+            in_progress:
+              type: integer
+            not_started:
+              type: integer
+        tasks:
+          type: array
+          items:
+            type: object
+            required: [task_id, name, status, priority, personal_progress, overall_progress]
+            properties:
+              task_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              status:
+                type: string
+              priority:
+                type: string
+              deadline:
+                type: string
+                format: date-time
+                nullable: true
+              personal_progress:
+                type: integer
+              overall_progress:
+                type: integer
     TaskAssigneeData:
       type: object
       required:
@@ -741,6 +854,46 @@ components:
           format: uuid
         is_completed:
           type: boolean
+    ChatMessageData:
+      type: object
+      required:
+        - id
+        - community_id
+        - user
+        - content
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        community_id:
+          type: string
+          format: uuid
+        user:
+          type: object
+          required: [id, display_name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            display_name:
+              type: string
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ChatSendRequest:
+      type: object
+      required:
+        - community_id
+        - content
+      properties:
+        community_id:
+          type: string
+          format: uuid
+        content:
+          type: string
   parameters:
     CommunityIdQuery:
       name: community_id
