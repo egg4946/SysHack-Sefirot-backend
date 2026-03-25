@@ -6,7 +6,6 @@ import prisma from '../lib/prisma';
 import { authenticateToken } from '../middlewares/auth';
 import { createRateLimit } from '../middlewares/rateLimit';
 
-
 const router = Router();
 const signupRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 20 });
 const signinRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 10 });
@@ -38,12 +37,13 @@ const sanitizeDisplayName = (displayName: unknown): string | null => {
   return normalized;
 };
 
+// ✨ 修正: createdAt に .toISOString() を追加してYAML仕様書と完全一致させる
 const formatUser = (user: { id: string; email: string; displayName: string; createdAt: Date }) => {
   return {
     id: user.id,
     email: user.email,
     display_name: user.displayName,
-    created_at: user.createdAt,
+    created_at: user.createdAt.toISOString(),
   };
 };
 
@@ -55,7 +55,7 @@ const createRefreshToken = (userId: string): string => {
   return jwt.sign({ sub: userId, type: 'refresh' }, env.jwtSecret, { expiresIn: '7d' });
 };
 
-// 新規登録 ( /api/v1/auth/signup として後で登録されます )
+// 新規登録 ( /api/v1/auth/signup )
 router.post('/signup', signupRateLimit, async (req: Request, res: Response): Promise<any> => {
   try {
     const email = sanitizeEmail(req.body.email);
@@ -94,7 +94,7 @@ router.post('/signup', signupRateLimit, async (req: Request, res: Response): Pro
   }
 });
 
-// ログイン ( /api/v1/auth/signin として後で登録されます )
+// ログイン ( /api/v1/auth/signin )
 router.post('/signin', signinRateLimit, async (req: Request, res: Response): Promise<any> => {
   try {
     const email = sanitizeEmail(req.body.email);
@@ -165,4 +165,4 @@ router.post('/logout', authenticateToken, async (req: Request, res: Response): P
   return res.status(204).send();
 });
 
-export default router; //いったんここまで
+export default router;

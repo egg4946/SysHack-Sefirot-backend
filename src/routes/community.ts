@@ -36,12 +36,20 @@ const parseId = (value: unknown): string | null => {
   return normalized.length > 0 ? normalized : null;
 };
 
+// 表示名用のバリデーション関数を追加
+const sanitizeDisplayName = (name: unknown): string | null => {
+  if (typeof name !== 'string') return null;
+  const normalized = name.trim();
+  if (normalized.length < 1 || normalized.length > 80) return null;
+  return normalized;
+};
+
 const formatCommunity = (community: any) => {
   return {
     id: community.id,
     name: community.name,
-    invite_code: community.inviteCode, // 👈 追加
-    member_count: community._count?.members || 1, // 👈 追加（作成直後は1人）
+    invite_code: community.inviteCode,
+    member_count: community._count?.members || 1,
     created_by: community.createdBy,
     created_at: community.createdAt.toISOString(),
   };
@@ -51,10 +59,11 @@ const formatCommunity = (community: any) => {
 router.post('/create', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const name = sanitizeCommunityName(req.body.name);
+    const displayName = sanitizeDisplayName(req.body.display_name); // ✨ 追加
     const userId = req.user!.id;
 
-    if (!name) {
-      return res.status(400).json({ detail: 'nameは1-100文字の文字列で指定してください' });
+    if (!name || !displayName) {
+      return res.status(400).json({ detail: 'nameまたはdisplay_nameが不正です' });
     }
 
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -67,7 +76,8 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
             inviteCode,
             createdBy: userId,
             members: {
-              create: { userId: userId }
+              // ✨ 修正: communityDisplayName を一緒に保存！
+              create: { userId: userId, communityDisplayName: displayName }
             }
           },
         });
@@ -93,10 +103,11 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
 router.post('/join', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const inviteCode = sanitizeInviteCode(req.body.invite_code);
+    const displayName = sanitizeDisplayName(req.body.display_name); // ✨ 追加
     const userId = req.user!.id;
 
-    if (!inviteCode) {
-      return res.status(400).json({ detail: 'invite_codeは6文字の英数字で指定してください' });
+    if (!inviteCode || !displayName) {
+      return res.status(400).json({ detail: 'invite_codeまたはdisplay_nameが不正です' });
     }
 
     const community = await prisma.community.findUnique({
@@ -120,13 +131,15 @@ router.post('/join', authenticateToken, async (req: AuthRequest, res: Response):
       return res.status(200).json(formatCommunity(community));
     }
 
+    // ✨ 修正: communityDisplayName を一緒に保存！
     await prisma.communityMember.create({
-      data: { userId: userId, communityId: community.id }
+      data: { userId: userId, communityId: community.id, communityDisplayName: displayName }
     });
 
     if (community._count) {
       community._count.members += 1;
-    } else {community._count = { members: 2 };
+    } else {
+      community._count = { members: 2 };
     }
 
     return res.status(200).json(formatCommunity(community));
@@ -137,7 +150,39 @@ router.post('/join', authenticateToken, async (req: AuthRequest, res: Response):
   }
 });
 
-// 3. 招待コードの発行 ( POST /api/v1/community/invite )
+// ✨ 3. 【新規】プロジェクト内での表示名を変更する ( PATCH /api/v1/community/member/name ) ✨
+router.patch('/member/name', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const communityId = parseId(req.body.community_id);
+    const displayName = sanitizeDisplayName(req.body.display_name);
+    const userId = req.user!.id;
+
+    if (!communityId || !displayName) {
+      return res.status(400).json({ detail: 'community_idまたはdisplay_nameが不正です' });
+    }
+
+    const member = await prisma.communityMember.findUnique({
+      where: { userId_communityId: { userId, communityId } }
+    });
+
+    if (!member) {
+      return res.status(403).json({ detail: 'このコミュニティに参加していません' });
+    }
+
+    await prisma.communityMember.update({
+      where: { userId_communityId: { userId, communityId } },
+      data: { communityDisplayName: displayName }
+    });
+
+    return res.status(200).json({ message: '表示名を変更しました' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: '表示名の変更中にエラーが発生しました' });
+  }
+});
+
+
+// 4. 招待コードの発行 ( POST /api/v1/community/invite )
 router.post('/invite', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const communityId = parseId(req.body.community_id);
@@ -172,7 +217,7 @@ router.post('/invite', authenticateToken, async (req: AuthRequest, res: Response
   }
 });
 
-// 4. 【新規】メンバー一覧取得 ( GET /api/v1/community/members?community_id=xxx )
+// 5. メンバー一覧取得 ( GET /api/v1/community/members?community_id=xxx )
 router.get('/members', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const communityId = parseId(req.query.community_id);
@@ -182,7 +227,6 @@ router.get('/members', authenticateToken, async (req: AuthRequest, res: Response
       return res.status(400).json({ detail: 'community_idが必要です' });
     }
 
-    // 自分がそのコミュニティに所属しているかチェック
     const isMember = await prisma.communityMember.findUnique({
       where: { userId_communityId: { userId, communityId } }
     });
@@ -191,7 +235,6 @@ router.get('/members', authenticateToken, async (req: AuthRequest, res: Response
       return res.status(403).json({ detail: 'このコミュニティのメンバー情報を閲覧する権限がありません' });
     }
 
-    // コミュニティの全メンバーを取得して、Userスキーマの形に整形
     const members = await prisma.communityMember.findMany({
       where: { communityId },
       include: { user: true },
@@ -201,7 +244,8 @@ router.get('/members', authenticateToken, async (req: AuthRequest, res: Response
     const formattedMembers = members.map(m => ({
       id: m.user.id,
       email: m.user.email,
-      display_name: m.user.displayName,
+      // ✨ 修正: アカウント本名ではなく、プロジェクト内表示名(communityDisplayName)を返す！
+      display_name: m.communityDisplayName,
       created_at: m.user.createdAt.toISOString()
     }));
 
@@ -212,7 +256,7 @@ router.get('/members', authenticateToken, async (req: AuthRequest, res: Response
   }
 });
 
-// 5. 【新規】メンバーのキック ( POST /api/v1/community/kick )
+// 6. メンバーのキック ( POST /api/v1/community/kick )
 router.post('/kick', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const communityId = parseId(req.body.community_id);
@@ -223,7 +267,6 @@ router.post('/kick', authenticateToken, async (req: AuthRequest, res: Response):
       return res.status(400).json({ detail: 'community_idとuser_idが必要です' });
     }
 
-    // キック権限の確認（コミュニティ作成者のみキック可能とする）
     const community = await prisma.community.findUnique({
       where: { id: communityId }
     });
@@ -236,12 +279,10 @@ router.post('/kick', authenticateToken, async (req: AuthRequest, res: Response):
       return res.status(403).json({ detail: 'メンバーをキックする権限がありません（作成者のみ可能です）' });
     }
 
-    // 自分自身をキックしようとしていないかチェック
     if (requesterId === targetUserId) {
       return res.status(400).json({ detail: '作成者自身をキックすることはできません' });
     }
 
-    // メンバーが存在するか確認して削除
     const targetMember = await prisma.communityMember.findUnique({
       where: { userId_communityId: { userId: targetUserId, communityId } }
     });

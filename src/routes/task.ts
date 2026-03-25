@@ -6,6 +6,7 @@ const router = Router();
 
 type Priority = '大' | '中' | '小';
 type TaskStatus = '未着手' | '進行中' | '完了';
+type SortBy = 'created_at' | 'deadline' | 'priority' | 'progress';
 
 const parseId = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
@@ -37,6 +38,16 @@ const parseProgress = (value: unknown): number | null => {
   return value;
 };
 
+const parseSortBy = (value: unknown): SortBy => {
+  if (value === 'deadline' || value === 'priority' || value === 'progress') return value as SortBy;
+  return 'created_at';
+};
+
+const parseOrder = (value: unknown): 'asc' | 'desc' => {
+  if (value === 'desc') return 'desc';
+  return 'asc';
+};
+
 const isCommunityMember = async (userId: string, communityId: string): Promise<boolean> => {
   const member = await prisma.communityMember.findUnique({
     where: { userId_communityId: { userId, communityId } },
@@ -44,12 +55,14 @@ const isCommunityMember = async (userId: string, communityId: string): Promise<b
   return Boolean(member);
 };
 
-// --- TaskData ビルダー ---
+// --- TaskData ビルダー（個人進捗対応版！） ---
 const buildTaskData = async (taskId: string) => {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
     include: {
-      assignees: true,
+      assignees: {
+        include: { user: true } // ✨ TaskAssigneeテーブルからユーザー情報を引く
+      },
       checklists: true,
       creator: true
     },
@@ -57,24 +70,33 @@ const buildTaskData = async (taskId: string) => {
 
   if (!task) return null;
 
+  // 担当者の「プロジェクト内表示名」と「個人進捗度」をまとめる
+  const formattedAssignees = await Promise.all(task.assignees.map(async (a) => {
+    const member = await prisma.communityMember.findUnique({
+      where: { userId_communityId: { userId: a.userId, communityId: task.communityId } }
+    });
+    return {
+      id: a.user.id,
+      email: a.user.email,
+      display_name: member?.communityDisplayName || a.user.displayName,
+      progress: a.progress, // ✨ その人の個人進捗度！
+      created_at: a.createdAt.toISOString()
+    };
+  }));
+
   return {
     id: task.id,
     community_id: task.communityId,
     parent_task_id: task.parentId,
     name: task.title,
-    description: task.description, // ✨ 復活: タスクの内容
-    progress: task.progress,
+    description: task.description,
+    progress: task.progress, // タスク全体の平均進捗度
     priority: task.priority,
     status: task.status,
     deadline: task.deadline ? task.deadline.toISOString() : null,
     created_by: task.createdBy,
     created_at: task.createdAt.toISOString(),
-    assignees: task.assignees.map(u => ({
-      id: u.id,
-      email: u.email,
-      display_name: u.displayName,
-      created_at: u.createdAt.toISOString()
-    })),
+    assignees: formattedAssignees,
     checklists: task.checklists.map(c => ({
       id: c.id,
       task_id: c.taskId,
@@ -84,20 +106,28 @@ const buildTaskData = async (taskId: string) => {
   };
 };
 
-// 1. タスク一覧取得
+// 1. タスク一覧取得 (ソート機能付き)
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const communityId = parseId(req.query.community_id);
     const userId = req.user!.id;
+    const sortBy = parseSortBy(req.query.sort_by);
+    const order = parseOrder(req.query.order);
 
     if (!communityId) return res.status(400).json({ detail: 'community_idが必要です' });
 
     const member = await isCommunityMember(userId, communityId);
     if (!member) return res.status(403).json({ detail: 'このコミュニティを閲覧する権限がありません' });
 
+    // 並び替えの条件を組み立てる
+    const orderByParams: any = {};
+    if (sortBy === 'created_at') orderByParams.createdAt = order;
+    else if (sortBy === 'deadline') orderByParams.deadline = { sort: order, nulls: 'last' };
+    else orderByParams[sortBy] = order;
+
     const tasks = await prisma.task.findMany({
       where: { communityId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: orderByParams,
       select: { id: true },
     });
 
@@ -116,7 +146,7 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
     const communityId = parseId(req.body.community_id);
     const parentTaskId = req.body.parent_task_id === null ? null : parseId(req.body.parent_task_id);
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
-    const description = typeof req.body.description === 'string' ? req.body.description.trim() : null; // ✨ 復活
+    const description = typeof req.body.description === 'string' ? req.body.description.trim() : null;
     const priority = parsePriority(req.body.priority);
     const status = parseStatus(req.body.status) || undefined;
     const deadline = parseDeadline(req.body.deadline);
@@ -141,7 +171,7 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
     const newTask = await prisma.task.create({
       data: {
         title: name,
-        description, // ✨ 復活
+        description,
         communityId,
         parentId: parentTaskId,
         createdBy: userId,
@@ -159,7 +189,7 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
   }
 });
 
-// ✨ 3. 【新規】タスクの基本情報編集 ( PATCH /api/v1/tasks/update ) ✨
+// 3. タスクの基本情報編集
 router.patch('/update', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
@@ -195,7 +225,7 @@ router.patch('/update', authenticateToken, async (req: AuthRequest, res: Respons
   }
 });
 
-// 4. 進捗更新 ＆ 親タスク自動計算
+// ✨ 4. 進捗更新 ＆ 個人進捗→タスク進捗→親タスク進捗の「全自動2段階計算」✨
 router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
@@ -207,28 +237,39 @@ router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Respo
     const taskBeforeUpdate = await prisma.task.findUnique({ where: { id: taskId } });
     if (!taskBeforeUpdate) return res.status(404).json({ detail: 'タスクが見つかりません' });
 
-    const member = await isCommunityMember(userId, taskBeforeUpdate.communityId);
-    if (!member) return res.status(403).json({ detail: '編集権限がありません' });
+    // 担当者テーブル(TaskAssignee)に自分がいるかチェック
+    const assignee = await prisma.taskAssignee.findUnique({
+      where: { taskId_userId: { taskId, userId } }
+    });
+    if (!assignee) return res.status(403).json({ detail: 'あなたはこのタスクの担当者ではありません' });
+
+    // 1️⃣ 自分の「個人進捗」を更新する
+    await prisma.taskAssignee.update({
+      where: { id: assignee.id },
+      data: { progress }
+    });
+
+    // 2️⃣ 同じタスクの全担当者の平均進捗を計算して、タスク自体の進捗にする
+    const allAssignees = await prisma.taskAssignee.findMany({ where: { taskId } });
+    const taskAvg = Math.floor(allAssignees.reduce((sum, a) => sum + a.progress, 0) / allAssignees.length);
 
     await prisma.task.update({
       where: { id: taskId },
-      data: { progress },
+      data: { progress: taskAvg }
     });
 
+    // 3️⃣ もし親タスクがあれば、兄弟タスクの平均進捗を計算して、親タスクの進捗にする
     if (taskBeforeUpdate.parentId) {
       const siblingTasks = await prisma.task.findMany({
         where: { parentId: taskBeforeUpdate.parentId }
       });
 
       if (siblingTasks.length > 0) {
-        const totalProgress = siblingTasks.reduce((sum, t) => sum + t.progress, 0);
-        const averageProgress = Math.floor(totalProgress / siblingTasks.length);
-
+        const parentAvg = Math.floor(siblingTasks.reduce((sum, t) => sum + t.progress, 0) / siblingTasks.length);
         await prisma.task.update({
           where: { id: taskBeforeUpdate.parentId },
-          data: { progress: averageProgress }
+          data: { progress: parentAvg }
         });
-        console.log(`🚀 親タスク(${taskBeforeUpdate.parentId})の進捗を ${averageProgress}% に自動更新しました！`);
       }
     }
 
@@ -268,7 +309,7 @@ router.patch('/status', authenticateToken, async (req: AuthRequest, res: Respons
   }
 });
 
-// 6. 担当者アサイン
+// 6. 担当者アサイン (専用テーブルを使うように改修)
 router.post('/assign', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
@@ -284,13 +325,22 @@ router.post('/assign', authenticateToken, async (req: AuthRequest, res: Response
     const assigneeMember = await isCommunityMember(assigneeId, task.communityId);
     if (!canEdit || !assigneeMember) return res.status(403).json({ detail: '権限がないか、ユーザーがコミュニティにいません' });
 
-    await prisma.task.update({
-      where: { id: taskId },
+    // すでにアサインされているかチェック
+    const existing = await prisma.taskAssignee.findUnique({
+      where: { taskId_userId: { taskId, userId: assigneeId } }
+    });
+
+    if (existing) {
+      return res.status(200).json({ message: 'すでにアサインされています' });
+    }
+
+    // ✨ 新規: TaskAssigneeテーブルに登録
+    await prisma.taskAssignee.create({
       data: {
-        assignees: {
-          connect: { id: assigneeId }
-        }
-      },
+        taskId: taskId,
+        userId: assigneeId,
+        progress: 0 // 初期進捗は0
+      }
     });
 
     return res.status(200).json({ message: 'Assigned successfully' });
