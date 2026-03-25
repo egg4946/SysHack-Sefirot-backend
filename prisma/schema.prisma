@@ -17,7 +17,7 @@ model User {
 
   // リレーション（他のテーブルとの繋がり）
   communityMembers CommunityMember[]
-  assignedTasks    Task[]            @relation("TaskAssignees")
+  assignedTasks    TaskAssignee[]    // 👈 変更: 新しい担当者テーブル(TaskAssignee)へ繋ぐ
   createdTasks     Task[]            @relation("TaskCreator")
 }
 
@@ -35,9 +35,10 @@ model Community {
 
 // 3. コミュニティ所属情報 (多対多の中間テーブル)
 model CommunityMember {
-  id          String @id @default(uuid())
-  userId      String
-  communityId String
+  id                   String @id @default(uuid())
+  userId               String
+  communityId          String
+  communityDisplayName String // ✨ 新規追加: 「このプロジェクトでの表示名」
 
   user      User      @relation(fields: [userId], references: [id])
   community Community @relation(fields: [communityId], references: [id])
@@ -64,10 +65,26 @@ model Task {
   parent    Task?     @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children  Task[]    @relation("TaskHierarchy")
 
-  assignees  User[]      @relation("TaskAssignees") // 複数人アサイン対応
+  assignees  TaskAssignee[] // ✨ 変更: 「個人進捗」を持てるように新しい担当者テーブルへ繋ぐ
   checklists Checklist[]
 }
 
+// 5. ✨ 新規追加: タスク担当者と「個人進捗度」を管理するテーブル ✨
+model TaskAssignee {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  progress  Int      @default(0) // ✨ 個人の進捗度 (0〜100)
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 同じ人が同じタスクに2回アサインされるのを防ぐ
+  @@unique([taskId, userId])
+}
+
+// 6. チェックリスト
 model Checklist {
   id          String  @id @default(uuid())
   taskId      String

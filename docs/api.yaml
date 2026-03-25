@@ -1,15 +1,15 @@
 openapi: 3.0.3
 info:
   title: Sefirot Backend API
-  version: 1.1.0
-  description: 課題進捗共有サービス「Sefirot」のAPI仕様書（タスク詳細・編集・人数追加版）
+  version: 2.0.0
+  description: 課題進捗共有サービス「Sefirot」のAPI仕様書（個人進捗・表示名・ソート機能対応版）
 servers:
   - url: http://localhost:8000/api/v1
 tags:
   - name: Auth
     description: 認証関係（登録・ログイン・トークン更新・ユーザー情報）
   - name: Community
-    description: コミュニティ（プロジェクト）の作成・参加・メンバー管理
+    description: コミュニティの作成・参加・メンバー管理・表示名変更
   - name: Task
     description: タスクの追加・編集・進捗更新・状態更新・アサイン
   - name: Checklist
@@ -117,7 +117,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CommunityResponse"
+                $ref: "#/components/schemas/CommunityData"
   /community/join:
     post:
       summary: Join community
@@ -135,7 +135,21 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CommunityResponse"
+                $ref: "#/components/schemas/CommunityData"
+  /community/member/name:
+    patch:
+      summary: プロジェクト内での表示名を変更する
+      tags:
+        - Community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityMemberNameRequest"
+      responses:
+        "200":
+          description: 表示名変更成功
   /community/invite:
     post:
       summary: 招待コードの発行
@@ -163,7 +177,7 @@ paths:
         - $ref: "#/components/parameters/CommunityIdQuery"
       responses:
         "200":
-          description: メンバー一覧
+          description: メンバー一覧（プロジェクト内の表示名で返ります）
           content:
             application/json:
               schema:
@@ -191,6 +205,8 @@ paths:
         - Task
       parameters:
         - $ref: "#/components/parameters/CommunityIdQuery"
+        - $ref: "#/components/parameters/SortByQuery"
+        - $ref: "#/components/parameters/OrderQuery"
       responses:
         "200":
           description: Task list
@@ -435,18 +451,36 @@ components:
       type: object
       required:
         - name
+        - display_name
       properties:
         name:
           type: string
-    CommunityResponse:
-      $ref: "#/components/schemas/CommunityData"
+        display_name:
+          type: string
+          description: このプロジェクト内での自分の表示名
     CommunityJoinRequest:
       type: object
       required:
         - invite_code
+        - display_name
       properties:
         invite_code:
           type: string
+        display_name:
+          type: string
+          description: このプロジェクト内での自分の表示名
+    CommunityMemberNameRequest:
+      type: object
+      required:
+        - community_id
+        - display_name
+      properties:
+        community_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+          description: 新しい表示名
     CommunityInviteRequest:
       type: object
       required:
@@ -492,6 +526,32 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CommunityData"
+    TaskAssigneeData:
+      type: object
+      required:
+        - id
+        - email
+        - display_name
+        - progress
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+          description: プロジェクト内表示名
+        progress:
+          type: integer
+          description: この人の個人進捗度
+          minimum: 0
+          maximum: 100
+        created_at:
+          type: string
+          format: date-time
     TaskData:
       type: object
       required:
@@ -524,6 +584,7 @@ components:
           type: integer
           minimum: 0
           maximum: 100
+          description: メンバーの個人進捗の平均（自動計算）
         priority:
           type: string
           enum: [大, 中, 小]
@@ -544,7 +605,7 @@ components:
         assignees:
           type: array
           items:
-            $ref: "#/components/schemas/User"
+            $ref: "#/components/schemas/TaskAssigneeData"
         checklists:
           type: array
           items:
@@ -581,6 +642,7 @@ components:
         deadline:
           type: string
           format: date-time
+          nullable: true
     TaskUpdateRequest:
       type: object
       required:
@@ -614,6 +676,7 @@ components:
           type: integer
           minimum: 0
           maximum: 100
+          description: 自分の個人進捗を送信する
     TaskStatusRequest:
       type: object
       required:
@@ -687,6 +750,24 @@ components:
       schema:
         type: string
         format: uuid
+    SortByQuery:
+      name: sort_by
+      in: query
+      required: false
+      description: 並び替え基準
+      schema:
+        type: string
+        enum: [created_at, deadline, priority, progress]
+        default: created_at
+    OrderQuery:
+      name: order
+      in: query
+      required: false
+      description: 昇順/降順
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: asc
   securitySchemes:
     bearerAuth:
       type: http
