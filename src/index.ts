@@ -17,17 +17,12 @@ const port = env.port;
 const corsAllowedOrigins = new Set(env.corsOrigins);
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // APIテストツール(!origin)、許可リスト、または「localhostからの通信」ならすべて許可する！
-    if (!origin || corsAllowedOrigins.has(origin) || origin.startsWith('http://localhost:')) {
-      return callback(null, true);
-    }
-    // 弾いた場合はターミナルにどのURLから来たかログを出す
-    console.warn(`🚨 CORSブロック: ${origin}`);
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true
+  origin: '*', // すべてのドメインからのアクセスを一旦許可（テスト用）
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+app.use(express.json()); // JSONのリクエストボディをパースするミドルウェア
 
 // 監視カメラ：リクエストが来るたびにターミナルに表示する
 app.use((req, res, next) => {
@@ -35,8 +30,6 @@ app.use((req, res, next) => {
   console.log(`📦 送られてきたデータ:`, req.body);
   next();
 });
-
-app.use(express.json()); // JSONのリクエストボディをパースするミドルウェア
 
 // 動作確認用のルート
 app.get('/', (req: Request, res: Response) => {

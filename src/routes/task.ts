@@ -148,11 +148,22 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
     const description = typeof req.body.description === 'string' ? req.body.description.trim() : null;
     const priority = parsePriority(req.body.priority);
-    const status = parseStatus(req.body.status) || undefined;
+    const statusInputProvided = req.body.status !== undefined;
+    const parsedStatus = parseStatus(req.body.status);
+    const status = parsedStatus ?? undefined;
+    const deadlineInputProvided = req.body.deadline !== undefined;
     const deadline = parseDeadline(req.body.deadline);
 
     if (!communityId || !name || !priority) {
       return res.status(400).json({ detail: 'community_id/name/priorityが不正です' });
+    }
+
+    if (statusInputProvided && !parsedStatus) {
+      return res.status(400).json({ detail: 'statusが不正です' });
+    }
+
+    if (deadlineInputProvided && req.body.deadline !== null && deadline === null) {
+      return res.status(400).json({ detail: 'deadlineが不正です' });
     }
 
     const member = await isCommunityMember(userId, communityId);
