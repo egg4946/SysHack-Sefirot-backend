@@ -186,11 +186,15 @@ router.patch('/member/name', authenticateToken, async (req: AuthRequest, res: Re
 router.post('/invite', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const communityId = parseId(req.body.community_id);
-    const limitRaw = req.body.limit;
     const userId = req.user!.id;
 
     if (!communityId) {
       return res.status(400).json({ detail: 'community_idが必要です' });
+    }
+
+    const community = await prisma.community.findUnique({ where: { id: communityId } });
+    if (!community) {
+      return res.status(404).json({ detail: 'コミュニティが見つかりません' });
     }
 
     const member = await prisma.communityMember.findUnique({
@@ -201,16 +205,7 @@ router.post('/invite', authenticateToken, async (req: AuthRequest, res: Response
       return res.status(403).json({ detail: 'このコミュニティへの招待コード発行権限がありません' });
     }
 
-    const community = await prisma.community.findUnique({ where: { id: communityId } });
-    if (!community) {
-      return res.status(404).json({ detail: 'コミュニティが見つかりません' });
-    }
-
-    const parsedLimit = typeof limitRaw === 'string' && !Number.isNaN(new Date(limitRaw).getTime())
-      ? new Date(limitRaw)
-      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-    return res.status(200).json({ invite_code: community.inviteCode, limit: parsedLimit.toISOString() });
+    return res.status(200).json({ invite_code: community.inviteCode });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ detail: '招待コード発行中にエラーが発生しました' });

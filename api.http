@@ -1,69 +1,134 @@
-### 変数の設定（URLの固定と、トークン置き場）
+### 変数設定
 @baseUrl = http://localhost:8000/api/v1
-# 👇 テスト2でログイン成功したら、返ってきた access_token をここに貼り付けてください！
-@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjZmRmYWJjMS1hMGJlLTQyZjctYjFkNS0yNTZmNTRiMDA2MDMiLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzc0Mzc5NDU3LCJleHAiOjE3NzQzODMwNTd9.XtmqMR8A6I84GNccOa_lv1C-KbJL4Lt7yZVn93JhJSg
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhODUzZmNhYS1hOGIyLTQ5Y2QtYmI2Yi1jNjM5ZWY1ZGZkYmQiLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzc0NDY0NTAzLCJleHAiOjE3NzQ0NjgxMDN9.dnfT3w_BreCgIp4JoEyzngSgOOTGEBtJ7ZnOZWU-Tdc
+@communityId = {{createCommunity.response.body.$.id}}
+@inviteCode = ここに_招待コードを貼り付けてください
+@taskId = ここに_task_idを貼り付けてください
+@userId = ここに_詳細を見たい人のuser_idを貼り付けてください
 
+############################################################
+# 1. 認証 (Auth)
+############################################################
 
-### ==========================================
-### 1. 認証系 (Auth)
-### ==========================================
-
-### テスト1：新規登録 (Signup)
-# 👇 この上の「Send Request」という小さな文字をクリックすると通信します！
+### 1-1. 新規登録
 POST {{baseUrl}}/auth/signup
 Content-Type: application/json
 
 {
-  "email": "test-hackathon@example.com",
+  "email": "test@example.com",
   "password": "password123",
-  "display_name": "ハッカソン太郎"
+  "display_name": "テストユーザー"
 }
 
-### テスト2：ログイン (Signin)
-# 成功すると右側の画面にJSONが返ってきます。
-# その中の "access_token" の中身（eyJ...から始まる長い文字列）をコピーして、一番上の @token の右側に貼り付けてください！
+### 1-2. ログイン
+# @name login
 POST {{baseUrl}}/auth/signin
 Content-Type: application/json
 
 {
-  "email": "test-hackathon@example.com",
+  "email": "test@example.com",
   "password": "password123"
 }
 
-### テスト3：自分の情報を取得 (Me)
-# ちゃんと @token が設定されていれば、自分の情報が返ってきます。
+### 1-3. 自分の情報と所属コミュニティ一覧
 GET {{baseUrl}}/me
 Authorization: Bearer {{token}}
 
+### 1-4. ログアウト
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{token}}
+Content-Type: application/json
 
-### ==========================================
-### 2. コミュニティ系 (Community)
-### ==========================================
+{
+  "refresh_token": "ここに_refresh_tokenを入れる"
+}
 
-### テスト4：コミュニティの作成
-# 成功すると、作成されたコミュニティの "id" と "invite_code" が返ってきます。
+############################################################
+# 2. コミュニティ (Community / Member)
+############################################################
+
+### 2-1. コミュニティ作成
+# @name createCommunity
 POST {{baseUrl}}/community/create
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "name": "SysHack 開発プロジェクト"
+  "name": "SysHack_Sefirot 開発チーム",
+  "display_name": "開発リーダー"
 }
 
+### 2-2. メンバー一覧取得
+GET {{baseUrl}}/community/members?community_id={{communityId}}
+Authorization: Bearer {{token}}
 
-### ==========================================
-### 3. タスク系 (Task)
-### ==========================================
+### 2-3. 【新機能】メンバー詳細（サマリーと担当タスク）
+GET {{baseUrl}}/community/member/detail?community_id={{communityId}}&user_id={{userId}}
+Authorization: Bearer {{token}}
 
-### テスト5：タスクの作成
-# 👇 "community_id" の部分を、テスト4で返ってきたコミュニティの "id" に書き換えて送信してください！
+### 2-4. 招待コード発行（無期限・固定コード）
+POST {{baseUrl}}/community/invite
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "community_id": "{{communityId}}"
+}
+
+### 2-5. 招待コードでコミュニティ参加
+POST {{baseUrl}}/community/join
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "invite_code": "{{inviteCode}}",
+  "display_name": "新規参加メンバー"
+}
+
+############################################################
+# 3. タスク (Task)
+############################################################
+
+### 3-1. タスク一覧取得
+GET {{baseUrl}}/tasks?community_id={{communityId}}
+Authorization: Bearer {{token}}
+
+### 3-2. 親タスク作成
 POST {{baseUrl}}/tasks/create
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "community_id": "79f10802-9007-49c4-bfa3-367bd92cfd63",
-  "name": "API仕様書の作成",
+  "community_id": "{{communityId}}",
+  "name": "フロントエンドの実装",
   "priority": "大",
-  "status": "完了"
+  "status": "進行中"
 }
+
+### 3-3. 進捗更新（自分の個人進捗を更新すると、全体も自動計算されます）
+PATCH {{baseUrl}}/tasks/progress
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "task_id": "{{taskId}}",
+  "progress": 75
+}
+
+############################################################
+# 4. チャット (Chat)
+############################################################
+
+### 4-1. メッセージ送信
+POST {{baseUrl}}/chat/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "community_id": "{{communityId}}",
+  "content": "皆さん、進捗どうですか？👍"
+}
+
+### 4-2. チャット履歴取得
+GET {{baseUrl}}/chat/messages?community_id={{communityId}}
+Authorization: Bearer {{token}}

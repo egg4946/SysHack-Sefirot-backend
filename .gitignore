@@ -27,3 +27,4 @@ dist-ssr
 /src/_pycache_
 .env
 dev.db
+api.http

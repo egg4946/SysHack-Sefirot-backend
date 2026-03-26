@@ -546,9 +546,6 @@ components:
         community_id:
           type: string
           format: uuid
-        limit:
-          type: string
-          format: date-time
     CommunityInviteResponse:
       type: object
       required:
@@ -556,9 +553,6 @@ components:
       properties:
         invite_code:
           type: string
-        limit:
-          type: string
-          format: date-time
     CommunityKickRequest:
       type: object
       required:
