@@ -172,11 +172,16 @@ router.post('/create', authenticateToken, async (req: AuthRequest, res: Response
     if (parentTaskId) {
       const parentTask = await prisma.task.findUnique({
         where: { id: parentTaskId },
-        select: { communityId: true },
+        select: { communityId: true, parentId: true }, // parentId も取得するように追加！
       });
 
       if (!parentTask) return res.status(404).json({ detail: 'parent_task_idのタスクが見つかりません' });
       if (parentTask.communityId !== communityId) return res.status(400).json({ detail: 'parent_task_idは同じcommunity_idのタスクを指定してください' });
+
+      // 🛑 孫タスク防止フィルター：親タスクが「すでに誰かの子（parentIdを持っている）」ならエラー！
+      if (parentTask.parentId) {
+        return res.status(400).json({ detail: 'タスクは2階層（親・子）までです。孫タスクは作成できません。' });
+      }
     }
 
     const newTask = await prisma.task.create({
