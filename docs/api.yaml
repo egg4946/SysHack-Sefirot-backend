@@ -221,6 +221,26 @@ paths:
       responses:
         "200":
           description: キック成功
+  /community/leave:
+    post:
+      summary: プロジェクト（コミュニティ）から自分自身が退出する
+      tags:
+        - Community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - community_id
+              properties:
+                community_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: 退出成功
   /tasks:
     get:
       summary: Get tasks in a community
@@ -323,6 +343,75 @@ paths:
       responses:
         "200":
           description: Assigned successfully
+  /tasks/delete:
+    delete:
+      summary: タスクを削除する（子タスクがある場合はエラーになります）
+      tags:
+        - Task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_id
+              properties:
+                task_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: タスク削除成功
+  /tasks/comments:
+    get:
+      summary: タスクごとのコメント履歴を取得
+      tags:
+        - Task
+      parameters:
+        - name: task_id
+          in: query
+          required: true
+          description: 対象となるタスクのID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: コメントの一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskCommentData"
+  /tasks/comments/create:
+    post:
+      summary: タスクにコメントを送信
+      tags:
+        - Task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_id
+                - content
+              properties:
+                task_id:
+                  type: string
+                  format: uuid
+                content:
+                  type: string
+      responses:
+        "200":
+          description: 送信されたコメント
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskCommentData"
   /checklists/create:
     post:
       summary: Add a checklist item to a task
@@ -888,6 +977,35 @@ components:
           format: uuid
         content:
           type: string
+    TaskCommentData:
+      type: object
+      required:
+        - id
+        - task_id
+        - user
+        - content
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        user:
+          type: object
+          required: [id, display_name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            display_name:
+              type: string
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
   parameters:
     CommunityIdQuery:
       name: community_id
