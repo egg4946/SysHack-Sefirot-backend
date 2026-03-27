@@ -19,6 +19,7 @@ model User {
   assignedTasks    TaskAssignee[]
   createdTasks     Task[]            @relation("TaskCreator")
   chatMessages     ChatMessage[]     // ✨ 新規: チャットとの繋がり
+  taskComments  TaskComment[]
 }
 
 // 2. コミュニティ
@@ -68,6 +69,7 @@ model Task {
 
   assignees  TaskAssignee[]
   checklists Checklist[]
+  comments    TaskComment[]
 }
 
 // 5. タスク担当者と「個人進捗度」
@@ -105,4 +107,17 @@ model ChatMessage {
 
   community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// タスクごとのコメントテーブル
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  // リレーション（タスクやユーザーが消えたらコメントも一緒に消える設定）
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

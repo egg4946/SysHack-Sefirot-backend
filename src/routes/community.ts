@@ -297,4 +297,52 @@ router.post('/kick', authenticateToken, async (req: AuthRequest, res: Response):
   }
 });
 
+// プロジェクト（コミュニティ）からの退出
+router.post('/leave', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const communityId = parseId(req.body.community_id);
+
+    if (!communityId) return res.status(400).json({ detail: 'community_idが不正です' });
+
+    // 自分が本当にそのプロジェクトのメンバーか確認
+    const member = await prisma.communityMember.findUnique({
+      where: { userId_communityId: { userId, communityId } }
+    });
+
+    if (!member) return res.status(404).json({ detail: 'このプロジェクトには参加していません' });
+
+    // ✨ トランザクションで安全に退出処理（担当タスクの解除 ＋ メンバー削除 ＋ 人数更新）
+    await prisma.$transaction(async (tx) => {
+      // ① このプロジェクト内での「自分のタスク担当（アサイン情報）」をすべて解除する
+      const myAssigns = await tx.taskAssignee.findMany({
+        where: {
+          userId: userId,
+          task: { communityId: communityId } // このコミュニティのタスクに限定
+        }
+      });
+
+      const assignIds = myAssigns.map(a => a.id);
+      if (assignIds.length > 0) {
+        await tx.taskAssignee.deleteMany({
+          where: { id: { in: assignIds } }
+        });
+      }
+
+      // ② プロジェクトのメンバー一覧から自分を削除
+      await tx.communityMember.delete({
+        where: { userId_communityId: { userId, communityId } }
+      });
+
+      // ③ コミュニティメンバーの削除によって人数は自動で更新される
+    });
+
+    return res.status(200).json({ message: 'プロジェクトから正常に退出しました' });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: '退出処理中にエラーが発生しました' });
+  }
+});
+
 export default router;

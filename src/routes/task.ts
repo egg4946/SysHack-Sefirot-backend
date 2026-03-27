@@ -366,4 +366,143 @@ router.post('/assign', authenticateToken, async (req: AuthRequest, res: Response
   }
 });
 
+// 7. タスク削除
+router.delete('/delete', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    // DELETEメソッドでもbodyから受け取る仕様にします
+    const taskId = parseId(req.body.task_id);
+
+    if (!taskId) return res.status(400).json({ detail: 'task_idが不正です' });
+
+    // 削除対象のタスクが存在するか確認
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!task) return res.status(404).json({ detail: 'タスクが見つかりません' });
+
+    // プロジェクトのメンバーかどうか（権限）の確認
+    const member = await isCommunityMember(userId, task.communityId);
+    if (!member) return res.status(403).json({ detail: '削除権限がありません' });
+
+    // ✨ 安全な一括削除（トランザクション）
+    await prisma.$transaction(async (tx) => {
+      // 🛑 ブロック機能：子タスクを持っている親タスクは消せないようにする
+      const subTasks = await tx.task.findMany({ where: { parentId: taskId } });
+      if (subTasks.length > 0) {
+        throw new Error('HAS_SUBTASKS');
+      }
+
+      // ① まずこのタスクの「チェックリスト」を全部消す
+      await tx.checklist.deleteMany({ where: { taskId } });
+
+      // ② 次にこのタスクの「担当者（アサイン情報）」を全部消す
+      await tx.taskAssignee.deleteMany({ where: { taskId } });
+
+      // ③ 最後に「タスク本体」を消す！
+      await tx.task.delete({ where: { id: taskId } });
+    });
+
+    return res.status(200).json({ message: 'タスクを正常に削除しました' });
+
+  } catch (error: any) {
+    // ブロック機能に引っかかった場合のエラーメッセージ
+    if (error.message === 'HAS_SUBTASKS') {
+      return res.status(400).json({ detail: '子タスクが存在するため削除できません。先に子タスクを削除してください。' });
+    }
+    console.error(error);
+    return res.status(500).json({ detail: 'タスクの削除中にエラーが発生しました' });
+  }
+});
+
+// 8. タスクごとのコメント取得
+router.get('/comments', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const taskId = parseId(req.query.task_id);
+
+    if (!taskId) return res.status(400).json({ detail: 'task_idが必要です' });
+
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!task) return res.status(404).json({ detail: 'タスクが見つかりません' });
+
+    // 権限チェック
+    const member = await isCommunityMember(userId, task.communityId);
+    if (!member) return res.status(403).json({ detail: '閲覧権限がありません' });
+
+    const comments = await prisma.taskComment.findMany({
+      where: { taskId },
+      orderBy: { createdAt: 'asc' }, // 古い順（上から下へ流れるように）
+      include: { user: true }
+    });
+
+    // プロジェクト内の表示名を結合して返す
+    const payload = await Promise.all(comments.map(async (c) => {
+      const commenter = await prisma.communityMember.findUnique({
+        where: { userId_communityId: { userId: c.userId, communityId: task.communityId } }
+      });
+      return {
+        id: c.id,
+        task_id: c.taskId,
+        user: {
+          id: c.user.id,
+          display_name: commenter?.communityDisplayName || c.user.displayName,
+        },
+        content: c.content,
+        created_at: c.createdAt.toISOString()
+      };
+    }));
+
+    return res.status(200).json(payload);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: 'コメントの取得中にエラーが発生しました' });
+  }
+});
+
+// 9. タスクへのコメント送信
+router.post('/comments/create', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const taskId = parseId(req.body.task_id);
+    const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+
+    if (!taskId || !content) return res.status(400).json({ detail: 'task_idとcontentが必要です' });
+
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!task) return res.status(404).json({ detail: 'タスクが見つかりません' });
+
+    // 権限チェック
+    const member = await isCommunityMember(userId, task.communityId);
+    if (!member) return res.status(403).json({ detail: 'コメントする権限がありません' });
+
+    const newComment = await prisma.taskComment.create({
+      data: {
+        taskId,
+        userId,
+        content
+      },
+      include: { user: true }
+    });
+
+    // 作成したコメントのデータを返す（フロント側ですぐに画面に出すため）
+    const commenter = await prisma.communityMember.findUnique({
+      where: { userId_communityId: { userId, communityId: task.communityId } }
+    });
+
+    return res.status(200).json({
+      id: newComment.id,
+      task_id: newComment.taskId,
+      user: {
+        id: newComment.user.id,
+        display_name: commenter?.communityDisplayName || newComment.user.displayName,
+      },
+      content: newComment.content,
+      created_at: newComment.createdAt.toISOString()
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: 'コメントの送信中にエラーが発生しました' });
+  }
+});
+
 export default router;
