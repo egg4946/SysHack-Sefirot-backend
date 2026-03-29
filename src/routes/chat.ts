@@ -1,4 +1,6 @@
 import { Response, Router } from 'express';
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env';
 import prisma from '../lib/prisma';
 import { authenticateToken, AuthRequest } from '../middlewares/auth';
 
@@ -110,5 +112,97 @@ router.post('/send', authenticateToken, async (req: AuthRequest, res: Response):
     return res.status(500).json({ detail: 'メッセージの送信中にエラーが発生しました' });
   }
 });
+
+// ==========================================
+// ✨ WebSocket リアルタイム通信の実装
+// ==========================================
+
+// 接続中のクライアントを管理するリスト
+interface ChatClient {
+  ws: any;
+  communityId: string;
+  userId: string;
+}
+const connectedClients = new Set<ChatClient>();
+
+// 🚨 router.ws(...) ではなく、ただの関数として書き出します！
+export const chatWsHandler = async (ws: any, req: any) => {
+  const token = req.query.token as string;
+  const communityId = req.query.community_id as string;
+
+  if (!token || !communityId) {
+    ws.close(1008, '認証トークンとコミュニティIDが必要です');
+    return;
+  }
+
+  let userId: string;
+
+  try {
+    const decoded = jwt.verify(token, env.jwtSecret) as jwt.JwtPayload;
+    if (typeof decoded.sub !== 'string') throw new Error();
+    userId = decoded.sub;
+  } catch (error) {
+    ws.close(1008, '無効なトークンです');
+    return;
+  }
+
+  const member = await prisma.communityMember.findUnique({
+    where: { userId_communityId: { userId, communityId } },
+    include: { user: true }
+  });
+
+  if (!member) {
+    ws.close(1008, 'このプロジェクトのメンバーではありません');
+    return;
+  }
+
+  const client: ChatClient = { ws, communityId, userId };
+  connectedClients.add(client);
+  console.log(`🔗 WS Connected: User ${userId} joined Community ${communityId}`);
+
+  ws.on('message', async (msgStr: string) => {
+    try {
+      const data = JSON.parse(msgStr);
+      if (!data.content) return;
+
+      const newMessage = await prisma.chatMessage.create({
+        data: {
+          communityId,
+          userId,
+          content: data.content,
+          imageUrl: null
+        }
+      });
+
+      const payload = {
+        id: newMessage.id,
+        community_id: newMessage.communityId,
+        user: {
+          id: member.user.id,
+          display_name: member.communityDisplayName || member.user.displayName
+        },
+        content: newMessage.content,
+        image_url: newMessage.imageUrl,
+        created_at: newMessage.createdAt.toISOString()
+      };
+
+      const payloadString = JSON.stringify(payload);
+
+      connectedClients.forEach((connectedClient) => {
+        if (connectedClient.communityId === communityId && connectedClient.ws.readyState === 1) {
+          connectedClient.ws.send(payloadString);
+        }
+      });
+
+    } catch (error) {
+      console.error('WebSocketメッセージ処理エラー:', error);
+    }
+  });
+
+  ws.on('close', () => {
+    connectedClients.delete(client);
+    console.log(`🔌 WS Disconnected: User ${userId}`);
+  });
+};
 
 export default router;
