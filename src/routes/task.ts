@@ -253,6 +253,9 @@ router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Respo
     const taskBeforeUpdate = await prisma.task.findUnique({ where: { id: taskId } });
     if (!taskBeforeUpdate) return res.status(404).json({ detail: 'タスクが見つかりません' });
 
+    const member = await isCommunityMember(userId, taskBeforeUpdate.communityId);
+    if (!member) return res.status(403).json({ detail: 'このコミュニティに参加していません' });
+
     // 担当者テーブル(TaskAssignee)に自分がいるかチェック
     const assignee = await prisma.taskAssignee.findUnique({
       where: { taskId_userId: { taskId, userId } }
@@ -370,8 +373,7 @@ router.post('/assign', authenticateToken, async (req: AuthRequest, res: Response
 router.delete('/delete', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
-    // DELETEメソッドでもbodyから受け取る仕様にします
-    const taskId = parseId(req.body.task_id);
+    const taskId = parseId(req.query.task_id) || parseId(req.body.task_id);
 
     if (!taskId) return res.status(400).json({ detail: 'task_idが不正です' });
 

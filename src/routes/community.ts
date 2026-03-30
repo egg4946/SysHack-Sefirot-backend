@@ -286,6 +286,13 @@ router.post('/kick', authenticateToken, async (req: AuthRequest, res: Response):
       return res.status(404).json({ detail: '指定されたユーザーはこのコミュニティのメンバーではありません' });
     }
 
+    await prisma.taskAssignee.deleteMany({
+      where: {
+        userId: targetUserId,
+        task: { communityId }
+      }
+    });
+
     await prisma.communityMember.delete({
       where: { userId_communityId: { userId: targetUserId, communityId } }
     });

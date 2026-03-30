@@ -22,7 +22,7 @@ expressWs(app); // ✨ ここでExpressアプリ全体をWebSocket対応に強�
 const port = env.port;
 
 app.use(cors({
-  origin: '*',
+  origin: env.corsOrigins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -30,7 +30,7 @@ app.use(cors({
 app.use(express.json());
 
 app.use((req, res, next) => {
-  console.log(`📥 リクエスト受信: [${req.method}] ${req.url}`);
+  console.log(`📥 リクエスト受信: [${req.method}] ${req.path}`);
   next();
 });
 

@@ -19,7 +19,7 @@ model User {
   assignedTasks    TaskAssignee[]
   createdTasks     Task[]            @relation("TaskCreator")
   chatMessages     ChatMessage[]     // ✨ 新規: チャットとの繋がり
-  taskComments  TaskComment[]
+  taskComments     TaskComment[]
 }
 
 // 2. コミュニティ

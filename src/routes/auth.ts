@@ -10,7 +10,7 @@ const router = Router();
 const signupRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 20 });
 const signinRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 10 });
 const refreshRateLimit = createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 30 });
-const revokedRefreshTokens = new Set<string>();
+const revokedRefreshTokens = new Map<string, number>();
 
 const sanitizeEmail = (email: unknown): string | null => {
   if (typeof email !== 'string') {
@@ -53,6 +53,28 @@ const createAccessToken = (userId: string): string => {
 
 const createRefreshToken = (userId: string): string => {
   return jwt.sign({ sub: userId, type: 'refresh' }, env.jwtSecret, { expiresIn: '7d' });
+};
+
+const getTokenExpiryMs = (token: string): number => {
+  const decoded = jwt.decode(token) as jwt.JwtPayload | null;
+  if (decoded?.exp && Number.isFinite(decoded.exp)) {
+    return decoded.exp * 1000;
+  }
+  return Date.now() + 7 * 24 * 60 * 60 * 1000;
+};
+
+const revokeRefreshToken = (token: string): void => {
+  revokedRefreshTokens.set(token, getTokenExpiryMs(token));
+};
+
+const isRevokedRefreshToken = (token: string): boolean => {
+  const expiresAt = revokedRefreshTokens.get(token);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    revokedRefreshTokens.delete(token);
+    return false;
+  }
+  return true;
 };
 
 // 新規登録 ( /api/v1/auth/signup )
@@ -136,7 +158,7 @@ router.post('/refresh', refreshRateLimit, async (req: Request, res: Response): P
       return res.status(400).json({ detail: 'refresh_tokenが必要です' });
     }
 
-    if (revokedRefreshTokens.has(refreshToken)) {
+    if (isRevokedRefreshToken(refreshToken)) {
       return res.status(401).json({ detail: '無効なトークンです' });
     }
 
@@ -147,7 +169,7 @@ router.post('/refresh', refreshRateLimit, async (req: Request, res: Response): P
 
     const newAccessToken = createAccessToken(decoded.sub);
     const newRefreshToken = createRefreshToken(decoded.sub);
-    revokedRefreshTokens.add(refreshToken);
+    revokeRefreshToken(refreshToken);
 
     return res.status(200).json({ access_token: newAccessToken, refresh_token: newRefreshToken });
   } catch {
@@ -156,13 +178,23 @@ router.post('/refresh', refreshRateLimit, async (req: Request, res: Response): P
 });
 
 router.post('/logout', authenticateToken, async (req: Request, res: Response): Promise<any> => {
-  const refreshToken = typeof req.body.refresh_token === 'string' ? req.body.refresh_token : null;
-  if (!refreshToken) {
-    return res.status(400).json({ detail: 'refresh_tokenが必要です' });
-  }
+  try {
+    const refreshToken = typeof req.body.refresh_token === 'string' ? req.body.refresh_token : null;
+    if (!refreshToken) {
+      return res.status(400).json({ detail: 'refresh_tokenが必要です' });
+    }
 
-  revokedRefreshTokens.add(refreshToken);
-  return res.status(204).send();
+    const decoded = jwt.verify(refreshToken, env.jwtSecret) as jwt.JwtPayload;
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ detail: '無効なトークンです' });
+    }
+
+    revokeRefreshToken(refreshToken);
+
+    return res.status(204).send();
+  } catch {
+    return res.status(401).json({ detail: '無効なトークンです' });
+  }
 });
 
 export default router;
