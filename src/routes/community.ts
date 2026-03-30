@@ -345,4 +345,60 @@ router.post('/leave', authenticateToken, async (req: AuthRequest, res: Response)
   }
 });
 
+// 7. ✨ 【新規】プロジェクト（コミュニティ）の削除 ( DELETE /api/v1/community/delete ) ✨
+router.delete('/delete', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    // ✨ 修正1: DELETEメソッドのbodyは環境によって消されるため、URL(query)から受け取るように変更
+    const communityId = parseId(req.query.community_id) || parseId(req.body.community_id);
+    const userId = req.user!.id;
+
+    if (!communityId) {
+      return res.status(400).json({ detail: 'community_idが必要です' });
+    }
+
+    const community = await prisma.community.findUnique({
+      where: { id: communityId }
+    });
+
+    if (!community) {
+      return res.status(404).json({ detail: 'プロジェクトが見つかりません' });
+    }
+
+    if (community.createdBy !== userId) {
+      return res.status(403).json({ detail: 'プロジェクトを削除する権限がありません（作成者のみ可能です）' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // ✨ 修正2: Prismaの deleteMany は外部キー制約でエラーになりやすいため、順序を守って1件ずつ丁寧に消去する
+      const tasks = await tx.task.findMany({ where: { communityId } });
+
+      // ① 子タスクから先に消す
+      for (const task of tasks.filter(t => t.parentId !== null)) {
+         await tx.taskAssignee.deleteMany({ where: { taskId: task.id } });
+         await tx.checklist.deleteMany({ where: { taskId: task.id } });
+         await tx.taskComment.deleteMany({ where: { taskId: task.id } });
+         await tx.task.delete({ where: { id: task.id } });
+      }
+      // ② 親タスクを消す
+      for (const task of tasks.filter(t => t.parentId === null)) {
+         await tx.taskAssignee.deleteMany({ where: { taskId: task.id } });
+         await tx.checklist.deleteMany({ where: { taskId: task.id } });
+         await tx.taskComment.deleteMany({ where: { taskId: task.id } });
+         await tx.task.delete({ where: { id: task.id } });
+      }
+
+      // ③ チャット履歴・メンバー情報・プロジェクト本体の順で削除
+      await tx.chatMessage.deleteMany({ where: { communityId } });
+      await tx.communityMember.deleteMany({ where: { communityId } });
+      await tx.community.delete({ where: { id: communityId } });
+    });
+
+    return res.status(200).json({ message: 'プロジェクトを完全に削除しました' });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: 'プロジェクト削除中にエラーが発生しました' });
+  }
+});
+
 export default router;
