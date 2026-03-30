@@ -505,4 +505,63 @@ router.post('/comments/create', authenticateToken, async (req: AuthRequest, res:
   }
 });
 
+// 10. ✨ 【新規】タスクから退出 (担当解除) ( POST /api/v1/tasks/leave )
+router.post('/leave', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user!.id;
+    const taskId = parseId(req.body.task_id);
+
+    if (!taskId) return res.status(400).json({ detail: 'task_idが不正です' });
+
+    const taskBeforeUpdate = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!taskBeforeUpdate) return res.status(404).json({ detail: 'タスクが見つかりません' });
+
+    // 自分が担当者として登録されているかチェック
+    const assignee = await prisma.taskAssignee.findUnique({
+      where: { taskId_userId: { taskId, userId } }
+    });
+
+    if (!assignee) {
+      return res.status(400).json({ detail: 'あなたはこのタスクの担当者ではありません' });
+    }
+
+    // ✨ 1. 担当から外す（削除）
+    await prisma.taskAssignee.delete({
+      where: { id: assignee.id }
+    });
+
+    // ✨ 2. 退出後のタスク全体の進捗を再計算
+    const remainingAssignees = await prisma.taskAssignee.findMany({ where: { taskId } });
+    // 誰もいなくなった場合は進捗を0%に戻す
+    const taskAvg = remainingAssignees.length > 0
+      ? Math.floor(remainingAssignees.reduce((sum, a) => sum + a.progress, 0) / remainingAssignees.length)
+      : 0;
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { progress: taskAvg }
+    });
+
+    // ✨ 3. 親タスクがあれば親も再計算
+    if (taskBeforeUpdate.parentId) {
+      const siblingTasks = await prisma.task.findMany({
+        where: { parentId: taskBeforeUpdate.parentId }
+      });
+
+      if (siblingTasks.length > 0) {
+        const parentAvg = Math.floor(siblingTasks.reduce((sum, t) => sum + t.progress, 0) / siblingTasks.length);
+        await prisma.task.update({
+          where: { id: taskBeforeUpdate.parentId },
+          data: { progress: parentAvg }
+        });
+      }
+    }
+
+    return res.status(200).json({ message: 'タスクから退出しました' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ detail: 'タスク退出中にエラーが発生しました' });
+  }
+});
+
 export default router;
