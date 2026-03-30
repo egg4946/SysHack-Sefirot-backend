@@ -10,8 +10,9 @@ const parseId = (value: unknown): string | null => {
   return normalized.length > 0 ? normalized : null;
 };
 
-// ✨ 【新規】メンバー詳細情報取得 ( GET /api/v1/community/member/detail )
-router.get('/member/detail', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
+// ✨ 修正1: '/detail' に変更！
+// (index.tsで '/api/v1/member' と合体して '/api/v1/member/detail' になります)
+router.get('/detail', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const communityId = parseId(req.query.community_id);
     const targetUserId = parseId(req.query.user_id);
@@ -61,6 +62,7 @@ router.get('/member/detail', authenticateToken, async (req: AuthRequest, res: Re
 
       return {
         task_id: a.task.id,
+        // ✨ 修正2: データベースの 'title' を、フロントエンド用の 'name' に変換する！
         name: a.task.title,
         status: a.task.status,
         priority: a.task.priority,
@@ -73,8 +75,8 @@ router.get('/member/detail', authenticateToken, async (req: AuthRequest, res: Re
     const payload = {
       user: {
         id: targetMember.user.id,
-        display_name: targetMember.communityDisplayName,
-        // ✨ 修正: アカウント作成日を「参加日」の代わりに使用してエラー回避！
+        // プロジェクト内表示名が未設定の場合のフォールバック
+        display_name: targetMember.communityDisplayName || targetMember.user.displayName,
         joined_at: targetMember.user.createdAt.toISOString()
       },
       summary: {
