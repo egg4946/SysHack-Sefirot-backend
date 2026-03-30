@@ -18,19 +18,17 @@ const parsePort = (rawPort: string | undefined): number => {
   return parsed;
 };
 
-const parseCorsOrigins = (rawOrigins: string | undefined): string[] => {
-  if (!rawOrigins) {
-    return ['http://localhost:5173'];
-  }
-
-  return rawOrigins
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter((origin) => origin.length > 0);
+// ✨ ハッカソン特化仕様：環境変数に頼らず、許可するURLを直接すべて書く！
+const getCorsOrigins = (): string[] => {
+  return [
+    'http://localhost:5173',  // ローカル環境1
+    'http://localhost:5174',  // ローカル環境2 (ポートがズレた時用)
+    'https://sys-hack-sefirot-frontend.vercel.app' // Vercelの本番環境
+  ];
 };
 
 export const env = {
   port: parsePort(process.env.PORT),
   jwtSecret: requireEnv('JWT_SECRET'),
-  corsOrigins: parseCorsOrigins(process.env.CORS_ORIGINS),
+  corsOrigins: getCorsOrigins(), // ✨ ここを変更
 };
