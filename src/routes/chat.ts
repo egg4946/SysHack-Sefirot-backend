@@ -125,13 +125,38 @@ interface ChatClient {
 }
 const connectedClients = new Set<ChatClient>();
 
+const parseWsToken = (req: any): string | null => {
+  const authHeader = req.headers?.authorization;
+  if (typeof authHeader === 'string') {
+    const [scheme, value] = authHeader.split(' ');
+    if (scheme?.toLowerCase() === 'bearer' && value) {
+      return value;
+    }
+  }
+
+  const protocolHeader = req.headers?.['sec-websocket-protocol'];
+  if (typeof protocolHeader === 'string') {
+    const protocols = protocolHeader.split(',').map((p: string) => p.trim()).filter(Boolean);
+    if (protocols.length >= 2 && protocols[0].toLowerCase() === 'bearer') {
+      return protocols[1];
+    }
+  }
+
+  const queryToken = typeof req.query?.token === 'string' ? req.query.token.trim() : '';
+  if (queryToken) {
+    return queryToken;
+  }
+
+  return null;
+};
+
 // 🚨 router.ws(...) ではなく、ただの関数として書き出します！
 export const chatWsHandler = async (ws: any, req: any) => {
-  const token = req.query.token as string;
+  const token = parseWsToken(req);
   const communityId = req.query.community_id as string;
 
   if (!token || !communityId) {
-    ws.close(1008, '認証トークンとコミュニティIDが必要です');
+    ws.close(1008, 'Authorization または Sec-WebSocket-Protocol でトークンが必要です');
     return;
   }
 
@@ -140,6 +165,7 @@ export const chatWsHandler = async (ws: any, req: any) => {
   try {
     const decoded = jwt.verify(token, env.jwtSecret) as jwt.JwtPayload;
     if (typeof decoded.sub !== 'string') throw new Error();
+    if (decoded.type !== 'access') throw new Error();
     userId = decoded.sub;
   } catch (error) {
     ws.close(1008, '無効なトークンです');
