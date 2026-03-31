@@ -78,7 +78,6 @@ model TaskAssignee {
   taskId    String
   userId    String
   progress  Int      @default(0)
-  comment   String?  // ✨ 新規追加: 進捗に添える一言コメント（入力しないこともあるのでオプショナル `?` にします）
   createdAt DateTime @default(now())
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)

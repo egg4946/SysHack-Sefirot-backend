@@ -4,7 +4,7 @@ import { authenticateToken, AuthRequest } from '../middlewares/auth';
 
 const router = Router();
 
-type Priority = '高' | '中' | '低';
+type Priority = '大' | '中' | '小';
 type TaskStatus = '未着手' | '進行中' | '完了';
 type SortBy = 'created_at' | 'deadline' | 'priority' | 'progress';
 
@@ -15,7 +15,7 @@ const parseId = (value: unknown): string | null => {
 };
 
 const parsePriority = (value: unknown): Priority | null => {
-  if (value === '高' || value === '中' || value === '低') return value;
+  if (value === '大' || value === '中' || value === '小') return value;
   return null;
 };
 
@@ -55,7 +55,7 @@ const isCommunityMember = async (userId: string, communityId: string): Promise<b
   return Boolean(member);
 };
 
-// --- TaskData ビルダー（個人進捗 ＆ コメント対応版！） ---
+// --- TaskData ビルダー（個人進捗対応版！） ---
 const buildTaskData = async (taskId: string) => {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
@@ -70,7 +70,7 @@ const buildTaskData = async (taskId: string) => {
 
   if (!task) return null;
 
-  // 担当者の「プロジェクト内表示名」と「個人進捗度」「コメント」をまとめる
+  // 担当者の「プロジェクト内表示名」と「個人進捗度」をまとめる
   const formattedAssignees = await Promise.all(task.assignees.map(async (a) => {
     const member = await prisma.communityMember.findUnique({
       where: { userId_communityId: { userId: a.userId, communityId: task.communityId } }
@@ -79,8 +79,7 @@ const buildTaskData = async (taskId: string) => {
       id: a.user.id,
       email: a.user.email,
       display_name: member?.communityDisplayName || a.user.displayName,
-      progress: a.progress, // その人の個人進捗度！
-      comment: a.comment,   // ✨ 新規: 一言コメントをフロントエンドに返す
+      progress: a.progress, // ✨ その人の個人進捗度！
       created_at: a.createdAt.toISOString()
     };
   }));
@@ -242,20 +241,12 @@ router.patch('/update', authenticateToken, async (req: AuthRequest, res: Respons
   }
 });
 
-// ✨ 4. 進捗更新 ＆ コメント保存 ＆ 個人進捗→タスク進捗→親タスク進捗の「全自動2段階計算」✨
+// ✨ 4. 進捗更新 ＆ 個人進捗→タスク進捗→親タスク進捗の「全自動2段階計算」✨
 router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
     const taskId = parseId(req.body.task_id);
     const progress = parseProgress(req.body.progress);
-
-    // ✨ 新規: フロントから送られてきたコメントを取得。空文字の場合はnullとして扱う処理
-    const rawComment = req.body.comment;
-    let commentToSave: string | null | undefined = undefined;
-    if (typeof rawComment === 'string') {
-      const trimmed = rawComment.trim();
-      commentToSave = trimmed === '' ? null : trimmed;
-    }
 
     if (!taskId || progress === null) return res.status(400).json({ detail: 'task_id/progressが不正です' });
 
@@ -271,13 +262,10 @@ router.patch('/progress', authenticateToken, async (req: AuthRequest, res: Respo
     });
     if (!assignee) return res.status(403).json({ detail: 'あなたはこのタスクの担当者ではありません' });
 
-    // 1️⃣ 自分の「個人進捗」と「一言コメント」を更新する
+    // 1️⃣ 自分の「個人進捗」を更新する
     await prisma.taskAssignee.update({
       where: { id: assignee.id },
-      data: {
-        progress,
-        ...(commentToSave !== undefined && { comment: commentToSave }) // commentが含まれている時だけ更新
-      }
+      data: { progress }
     });
 
     // 2️⃣ 同じタスクの全担当者の平均進捗を計算して、タスク自体の進捗にする
@@ -365,13 +353,12 @@ router.post('/assign', authenticateToken, async (req: AuthRequest, res: Response
       return res.status(200).json({ message: 'すでにアサインされています' });
     }
 
-    // ✨ 新規: TaskAssigneeテーブルに登録（コメントはnull）
+    // ✨ 新規: TaskAssigneeテーブルに登録
     await prisma.taskAssignee.create({
       data: {
         taskId: taskId,
         userId: assigneeId,
-        progress: 0, // 初期進捗は0
-        comment: null // 初期コメントは無し
+        progress: 0 // 初期進捗は0
       }
     });
 
@@ -520,7 +507,7 @@ router.post('/comments/create', authenticateToken, async (req: AuthRequest, res:
   }
 });
 
-// 10. タスクから退出 (担当解除) ( POST /api/v1/tasks/leave )
+// 10. ✨ 【新規】タスクから退出 (担当解除) ( POST /api/v1/tasks/leave )
 router.post('/leave', authenticateToken, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user!.id;
